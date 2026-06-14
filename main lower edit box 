@@ -1,8 +1,7 @@
--- Advanced Update Controller & Secure Cipher Injector
--- Creator: Mohammad Usman
+-- Smart-auto-update Creator: Mohammad Usman
 -- Language: AndroLua+ (Lua)
 -- Target: Jieshuo Screen Reader Auto-Update System Injector
--- Version: 4.0 (Dynamic XOR Cipher Integration & Zero Context Drop)
+-- Version: 4.1 (Dynamic XOR Cipher Integration & Active Folder Filter)
 
 require "import"
 import "android.widget.*"
@@ -38,7 +37,7 @@ local layout = {
     padding = "16dp",
     {
       TextView,
-      text = "Auto Update Injector Tool\nCreator: Mohammad Usman",
+      text = "Smart-auto-update Creator: Mohammad Usman",
       textColor = 0xFF009688,
       textSize = "16sp",
       gravity = "center",
@@ -97,13 +96,18 @@ checkTargetType.setOnCheckedChangeListener{
   end
 }
 
+-- Refined Function: Sirf wahi folders uthaega jinke andar main.lua maujud hogi
 local function getFolderList(path)
   local list = {}
   local files = File(path).listFiles()
   if files then 
     for i = 0, #files - 1 do 
       if files[i].isDirectory() then 
-        table.insert(list, tostring(files[i].getName())) 
+        -- Har folder ke andar check karega ki main.lua file exist karti hai ya nahi
+        local checkMainFile = File(files[i].getAbsolutePath() .. "/main.lua")
+        if checkMainFile.exists() and checkMainFile.isFile() then
+          table.insert(list, tostring(files[i].getName())) 
+        end
       end 
     end 
   end
@@ -114,7 +118,7 @@ btnOpenList.setOnClickListener{
   onClick = function(v)
     local items = getFolderList(currentSearchPath)
     if #items == 0 then 
-      Toast.makeText(ctx, "No folders found!", 0).show() 
+      Toast.makeText(ctx, "No active folders found with main.lua!", 0).show() 
       return 
     end
     local listDialog = AlertDialog.Builder(ctx)
@@ -163,7 +167,7 @@ btnAboutSupport.setOnClickListener{
       padding = "20dp",
       {
         TextView,
-        text = "Creator: Mohammad Usman",
+        text = "Smart-auto-update Creator: Mohammad Usman",
         textColor = 0xFF009688,
         textSize = "18sp",
         gravity = "center",
@@ -443,7 +447,7 @@ end}, 1500)]]
     
     local success = AlertDialog.Builder(ctx)
     success.setTitle("Injection Successful!")
-    success.setMessage("Mubarak ho Mohammad Usman! Safe Dynamic Cipher System safely inject ho gaya hai.")
+    success.setMessage("Mubarak ho! " .. selectedFolder .. " mein Safe Dynamic Cipher System kamyabi ke sath inject ho gaya hai.")
     success.setPositiveButton("OK", nil)
     local sd = success.create()
     if service then sd.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
