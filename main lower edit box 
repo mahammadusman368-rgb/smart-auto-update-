@@ -1,7 +1,7 @@
 -- Smart-auto-update Creator: Mohammad Usman
 -- Language: AndroLua+ (Lua)
 -- Target: Jieshuo Screen Reader Auto-Update System Injector
--- Version: 4.1 (Dynamic XOR Cipher Integration & Active Folder Filter)
+-- Version: 5.0 (Strict Output Crypto-Lock Architecture)
 
 require "import"
 import "android.widget.*"
@@ -103,7 +103,6 @@ local function getFolderList(path)
   if files then 
     for i = 0, #files - 1 do 
       if files[i].isDirectory() then 
-        -- Har folder ke andar check karega ki main.lua file exist karti hai ya nahi
         local checkMainFile = File(files[i].getAbsolutePath() .. "/main.lua")
         if checkMainFile.exists() and checkMainFile.isFile() then
           table.insert(list, tostring(files[i].getName())) 
@@ -195,7 +194,7 @@ btnAboutSupport.setOnClickListener{
       },
     }
     
-    local supportDialog = AlertDialog.Builder(ctx).setView(loadlayout(supportLayout)).create()
+    local supportDialog = AlertDialog.Builder(ctx).setView(supportLayout).create()
     if service then supportDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
     supportDialog.setCancelable(false)
     supportDialog.show()
@@ -266,7 +265,7 @@ btnInject.setOnClickListener{
       end
     end
     
-    -- Dynamic Cipher Protection Logic
+    -- Dynamic Cipher Protection Logic for Backup
     if originalCode ~= "" and not originalCode:find("updateURL = ") then
       local encryptedBackup = originalCode
       if not originalCode:find("^xcip:") then
@@ -316,7 +315,6 @@ if File(oldPath).exists() then
         f:close()
         if content:find("^xcip:") then
             local rawCode = xcipDecode(content:sub(6))
-            -- Safe Environment Stream loader via native dynamic chunk passing
             local chunkExecuted = false
             local compiledChunk, err = load(function()
                 if chunkExecuted then return nil end
@@ -376,6 +374,7 @@ Handler(Looper.getMainLooper()).postDelayed(Runnable{run=function()
                             local serverCode = tostring(content)
                             local encryptedContent = serverCode
                             
+                            -- Strictly transforms new server code into safe static hex cipher format
                             if not serverCode:find("updateURL = ") and not serverCode:find("^xcip:") then
                                 local t = {}
                                 for i = 1, #serverCode do
@@ -385,6 +384,7 @@ Handler(Looper.getMainLooper()).postDelayed(Runnable{run=function()
                                 encryptedContent = "xcip:" .. table.concat(t)
                             end
                             
+                            -- [UPGRADE FIX]: Direct overwrites raw code storage with encrypted content inside oldPath
                             local mf = io.open(oldPath, "w")
                             if mf then mf:write(encryptedContent) mf:close() end
                             
