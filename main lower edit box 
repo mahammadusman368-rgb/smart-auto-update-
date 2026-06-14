@@ -1,1 +1,460 @@
-Assalamu Alaikum how are you 
+-- Advanced Update Controller & Secure Cipher Injector
+-- Creator: Mohammad Usman
+-- Language: AndroLua+ (Lua)
+-- Target: Jieshuo Screen Reader Auto-Update System Injector
+-- Version: 4.0 (Dynamic XOR Cipher Integration & Zero Context Drop)
+
+require "import"
+import "android.widget.*"
+import "android.view.*"
+import "android.app.*"
+import "android.os.*"
+import "java.io.File"
+import "java.lang.String"
+import "android.content.Context"
+import "android.content.Intent"
+import "android.net.Uri"
+import "android.content.ClipData"
+
+local ctx = service or activity
+if not ctx then return end
+
+local pluginsPath = "/storage/emulated/0/解说/Plugins/"
+local toolsPath = "/storage/emulated/0/解说/Tools/"
+local currentSearchPath = pluginsPath
+local whatsappNumber = "923261421100"
+local cipherKey = 85 -- Secret cryptographic mathematical byte key
+
+local layout = {
+  ScrollView,
+  layout_width = "fill",
+  layout_height = "fill",
+  fillViewport = true,
+  {
+    LinearLayout,
+    orientation = "vertical",
+    layout_width = "fill",
+    layout_height = "fill",
+    padding = "16dp",
+    {
+      TextView,
+      text = "Auto Update Injector Tool\nCreator: Mohammad Usman",
+      textColor = 0xFF009688,
+      textSize = "16sp",
+      gravity = "center",
+      layout_width = "fill",
+      layout_height = "wrap",
+      padding = "5dp",
+    },
+    {
+      EditText, id = "editMainLuaLink", hint = "Main Lua Link", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
+    },
+    {
+      EditText, id = "editVersionLink", hint = "Version Link", layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
+    },
+    {
+      EditText, id = "editCurrentVersion", text = "1.0", hint = "Current Version", layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
+    },
+    {
+      CheckBox, id = "checkTargetType", text = "Check for Tools (Uncheck for Plugins)", layout_width = "fill", layout_height = "wrap", layout_marginTop = "12dp",
+    },
+    {
+      Button, id = "btnOpenList", text = "Select Target Extension", layout_width = "fill", layout_height = "wrap", layout_marginTop = "8dp",
+    },
+    {
+      EditText, id = "editSelectedName", hint = "Selected Folder", focusable = false, layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
+    },
+    {
+      Button, id = "btnInject", text = "Inject Auto Update System", backgroundColor = 0xFF009688, textColor = 0xFFFFFFFF, layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
+    },
+    {
+      Button, id = "btnAboutSupport", text = "About and Support", layout_width = "fill", layout_height = "wrap", layout_marginTop = "8dp",
+    },
+    {
+      Button, id = "btnGoBack", text = "Close Tool", layout_width = "fill", layout_height = "wrap", layout_marginTop = "8dp",
+    },
+  }
+}
+
+local mainDialog = nil
+mainDialog = AlertDialog.Builder(ctx).setView(loadlayout(layout)).create()
+if service then mainDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+
+mainDialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+mainDialog.setCancelable(false)
+mainDialog.show()
+
+checkTargetType.setOnCheckedChangeListener{
+  onCheckedChanged = function(button, isChecked)
+    if isChecked then 
+      btnOpenList.setText("Select Target Tool") 
+      currentSearchPath = toolsPath
+    else 
+      btnOpenList.setText("Select Target Extension") 
+      currentSearchPath = pluginsPath 
+    end
+    editSelectedName.setText("")
+  end
+}
+
+local function getFolderList(path)
+  local list = {}
+  local files = File(path).listFiles()
+  if files then 
+    for i = 0, #files - 1 do 
+      if files[i].isDirectory() then 
+        table.insert(list, tostring(files[i].getName())) 
+      end 
+    end 
+  end
+  return list
+end
+
+btnOpenList.setOnClickListener{
+  onClick = function(v)
+    local items = getFolderList(currentSearchPath)
+    if #items == 0 then 
+      Toast.makeText(ctx, "No folders found!", 0).show() 
+      return 
+    end
+    local listDialog = AlertDialog.Builder(ctx)
+      .setTitle("Choose Target Folder")
+      .setItems(items, function(dialog, which) 
+        editSelectedName.setText(items[which + 1]) 
+      end)
+      .create()
+    if service then listDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+    listDialog.show()
+  end
+}
+
+local function makeStrictRawLink(url)
+  if not url or url == "" then return "" end
+  url = url:gsub("^%s*(.-)%s*$", "%1")
+  if url:find("github.com") and not url:find("raw.githubusercontent.com") then
+    url = url:gsub("github.com", "raw.githubusercontent.com"):gsub("/blob/", "/")
+    if url:find("%?") then url = url:match("([^%?]+)") end
+  end
+  return url:gsub(" ", "%%20")
+end
+
+local function safeLiteralReplace(str, placeholder, extraValue)
+  local escapedValue = extraValue:gsub("%%", "%%%%")
+  return str:gsub(placeholder, escapedValue)
+end
+
+-- Custom XOR Crypt Engine (Supports Binary, Advanced Chars & Fast execution)
+local function xorCipherEncrypt(data, key)
+  local t = {}
+  for i = 1, #data do
+    local b = data:byte(i)
+    table.insert(t, string.format("%02x", bit32.bxor(b, key)))
+  end
+  return table.concat(t)
+end
+
+btnAboutSupport.setOnClickListener{
+  onClick = function(v)
+    local supportLayout = {
+      LinearLayout,
+      orientation = "vertical",
+      layout_width = "fill",
+      layout_height = "wrap",
+      padding = "20dp",
+      {
+        TextView,
+        text = "Creator: Mohammad Usman",
+        textColor = 0xFF009688,
+        textSize = "18sp",
+        gravity = "center",
+        layout_width = "fill",
+        layout_height = "wrap",
+      },
+      {
+        TextView,
+        text = "WhatsApp: +" .. whatsappNumber,
+        textColor = 0xFF333333,
+        textSize = "15sp",
+        gravity = "center",
+        layout_width = "fill",
+        layout_height = "wrap",
+        layout_marginTop = "15dp",
+      },
+      {
+        Button, id = "btnCopyWhatsApp", text = "Copy WhatsApp Number", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
+      },
+      {
+        Button, id = "btnContactWhatsApp", text = "Contact WhatsApp", backgroundColor = 0xFF25D366, textColor = 0xFFFFFFFF, layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
+      },
+      {
+        Button, id = "btnSubBack", text = "Go Back", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
+      },
+    }
+    
+    local supportDialog = AlertDialog.Builder(ctx).setView(loadlayout(supportLayout)).create()
+    if service then supportDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+    supportDialog.setCancelable(false)
+    supportDialog.show()
+    
+    btnCopyWhatsApp.setOnClickListener{
+      onClick = function(view)
+        if Build.VERSION.SDK_INT >= 11 then
+          local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+          local clip = ClipData.newPlainText("WhatsApp Number", whatsappNumber)
+          clipboard.setPrimaryClip(clip)
+        else
+          local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+          clipboard.setText(whatsappNumber)
+        end
+        Toast.makeText(ctx, "WhatsApp number clipboard mein copy ho gaya hai!", 0).show()
+      end
+    }
+    
+    btnContactWhatsApp.setOnClickListener{
+      onClick = function(view)
+        local success, err = pcall(function()
+          local url = "https://api.whatsapp.com/send?phone=" .. whatsappNumber
+          local intent = Intent(Intent.ACTION_VIEW)
+          intent.setData(Uri.parse(url))
+          intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          ctx.startActivity(intent)
+        end)
+        if not success then
+          Toast.makeText(ctx, "WhatsApp open karne mein masla hua ya WhatsApp installed nahi hai!", 1).show()
+        end
+      end
+    }
+    
+    btnSubBack.setOnClickListener{
+      onClick = function(view)
+        supportDialog.dismiss()
+      end
+    }
+  end
+}
+
+btnInject.setOnClickListener{
+  onClick = function(v)
+    local versionLink = makeStrictRawLink(editVersionLink.Text)
+    local mainLuaLink = makeStrictRawLink(editMainLuaLink.Text)
+    local startVersion = editCurrentVersion.Text:gsub("^%s*(.-)%s*$", "%1")
+    local selectedFolder = editSelectedName.Text:gsub("^%s*(.-)%s*$", "%1")
+    
+    if versionLink == "" or mainLuaLink == "" or startVersion == "" or selectedFolder == "" then
+      Toast.makeText(ctx, "Meherbani karke saari fields ko fill karein!", 0).show() 
+      return
+    end
+    
+    local targetFolder = currentSearchPath .. selectedFolder
+    local targetMainFile = targetFolder .. "/main.lua"
+    local targetOldFile = targetFolder .. "/old_main.lua"
+    local targetVersionFile = targetFolder .. "/version.txt"
+    
+    local folderDir = File(targetFolder)
+    if not folderDir.exists() then folderDir.mkdirs() end
+    
+    local originalCode = ""
+    if File(targetMainFile).exists() then
+      local rf = io.open(targetMainFile, "r")
+      if rf then
+        originalCode = rf:read("*a")
+        rf:close()
+      end
+    end
+    
+    -- Dynamic Cipher Protection Logic
+    if originalCode ~= "" and not originalCode:find("updateURL = ") then
+      local encryptedBackup = originalCode
+      if not originalCode:find("^xcip:") then
+        encryptedBackup = "xcip:" .. xorCipherEncrypt(originalCode, cipherKey)
+      end
+      local wf = io.open(targetOldFile, "w")
+      if wf then
+        wf:write(encryptedBackup)
+        wf:close()
+      end
+    end
+    
+    local rawTemplate = [[require "import"
+import "com.androlua.Http"
+import "android.widget.Toast"
+import "android.app.AlertDialog"
+import "android.view.WindowManager"
+import "android.os.Handler"
+import "android.os.Looper"
+import "java.io.File"
+
+local updateURL = "__VERSION_URL__"
+local downloadURL = "__DOWNLOAD_URL__"
+local defaultVersion = "__DEFAULT_VERSION__"
+local mainPath = "__CURRENT_DIR__/main.lua"
+local oldPath = "__CURRENT_DIR__/old_main.lua"
+local versionPath = "__CURRENT_DIR__/version.txt"
+local secretKey = 85
+
+local function xcipDecode(hexStr)
+    local t = {}
+    for i = 1, #hexStr, 2 do
+        local hexByte = hexStr:sub(i, i+1)
+        local b = tonumber(hexByte, 16)
+        if b then
+            table.insert(t, string.char(bit32.bxor(b, secretKey)))
+        end
+    end
+    return table.concat(t)
+end
+
+-- 1. High Compatibility Secure Iterator Execution Engine (Zero Context Drop)
+if File(oldPath).exists() then 
+    local f = io.open(oldPath, "r")
+    if f then
+        local content = f:read("*a")
+        f:close()
+        if content:find("^xcip:") then
+            local rawCode = xcipDecode(content:sub(6))
+            -- Safe Environment Stream loader via native dynamic chunk passing
+            local chunkExecuted = false
+            local compiledChunk, err = load(function()
+                if chunkExecuted then return nil end
+                chunkExecuted = true
+                return rawCode
+            end, "=old_main.lua", "bt", _G)
+            
+            if compiledChunk then
+                local success, runtimeErr = pcall(compiledChunk)
+                if not success then pcall(dofile, oldPath) end
+            else
+                pcall(dofile, oldPath)
+            end
+        else
+            pcall(dofile, oldPath)
+        end
+    end
+end
+
+-- 2. Silent Background Synchronization Thread
+Handler(Looper.getMainLooper()).postDelayed(Runnable{run=function()
+    Http.get(updateURL, function(code, response)
+        if code == 200 and response then
+            local serverFullContent = tostring(response)
+            local onlineVersion = serverFullContent:match("([^\r\n]+)") or defaultVersion
+            onlineVersion = onlineVersion:gsub("^%s*(.-)%s*$", "%1")
+            
+            if #onlineVersion > 15 then return end
+            
+            local updateMessage = ""
+            local msgStart = serverFullContent:find("[\r\n]")
+            if msgStart then
+                updateMessage = serverFullContent:sub(msgStart + 1):gsub("^%s*(.-)%s*$", "%1")
+            end
+            
+            local f = io.open(versionPath, "r")
+            local localFullContent = f and f:read("*a") or defaultVersion
+            if f then f:close() end
+            local localVersion = localFullContent:match("([^\r\n]+)") or defaultVersion
+            localVersion = localVersion:gsub("^%s*(.-)%s*$", "%1")
+            
+            local currentCtx = service or activity
+            
+            if onlineVersion ~= localVersion then
+                local updateAlertDlg = AlertDialog.Builder(currentCtx)
+                updateAlertDlg.setTitle("Update Available!")
+                local dialogMsg = "Server Version: " .. onlineVersion .. "\nYour Version: " .. localVersion
+                if updateMessage ~= "" then
+                    dialogMsg = dialogMsg .. "\n\n[What's New]:\n" .. updateMessage
+                end
+                updateAlertDlg.setMessage(dialogMsg)
+                updateAlertDlg.setCancelable(false)
+                updateAlertDlg.setPositiveButton("Update", function(dialogInterface, itemIndex)
+                    Toast.makeText(currentCtx, "Downloading update...", 0).show()
+                    Http.get(downloadURL, function(c, content)
+                        if c == 200 and content then
+                            local serverCode = tostring(content)
+                            local encryptedContent = serverCode
+                            
+                            if not serverCode:find("updateURL = ") and not serverCode:find("^xcip:") then
+                                local t = {}
+                                for i = 1, #serverCode do
+                                    local b = serverCode:byte(i)
+                                    table.insert(t, string.format("%02x", bit32.bxor(b, secretKey)))
+                                end
+                                encryptedContent = "xcip:" .. table.concat(t)
+                            end
+                            
+                            local mf = io.open(oldPath, "w")
+                            if mf then mf:write(encryptedContent) mf:close() end
+                            
+                            local vf = io.open(versionPath, "w")
+                            if vf then vf:write(serverFullContent) vf:close() end
+                            
+                            local successDlg = AlertDialog.Builder(currentCtx)
+                            successDlg.setTitle("Status")
+                            successDlg.setMessage("Update Successful! Please restart the extension.")
+                            successDlg.setPositiveButton("OK", nil)
+                            local sd2 = successDlg.create()
+                            if service then sd2.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+                            sd2.show()
+                        end
+                    end)
+                end)
+                updateAlertDlg.setNegativeButton("Later", nil)
+                local d1 = updateAlertDlg.create()
+                if service then d1.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+                d1.show()
+                
+            elseif serverFullContent:gsub("^%s*(.-)%s*$", "%1") ~= localFullContent:gsub("^%s*(.-)%s*$", "%1") and updateMessage ~= "" then
+                local msgDialog = AlertDialog.Builder(currentCtx)
+                msgDialog.setTitle("Important Announcement")
+                msgDialog.setMessage(updateMessage)
+                msgDialog.setPositiveButton("OK", function()
+                    local vf = io.open(versionPath, "w")
+                    if vf then vf:write(serverFullContent) vf:close() end
+                end)
+                local d3 = msgDialog.create()
+                if service then d3.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+                d3.show()
+            end
+        end
+    end)
+end}, 1500)]]
+
+    local finalCode = safeLiteralReplace(rawTemplate, "__VERSION_URL__", versionLink)
+    finalCode = safeLiteralReplace(finalCode, "__DOWNLOAD_URL__", mainLuaLink)
+    finalCode = safeLiteralReplace(finalCode, "__DEFAULT_VERSION__", startVersion)
+    finalCode = safeLiteralReplace(finalCode, "__CURRENT_DIR__", targetFolder)
+    
+    local f = io.open(targetMainFile, "w")
+    if f then 
+      f:write(finalCode) 
+      f:close() 
+    else
+      Toast.makeText(ctx, "Error: main.lua write failed!", 1):show()
+      return
+    end
+    
+    local vf = io.open(targetVersionFile, "w")
+    if vf then 
+      vf:write(startVersion) 
+      vf:close() 
+    else
+      Toast.makeText(ctx, "Error: version.txt write failed!", 1):show()
+      return
+    end
+    
+    local success = AlertDialog.Builder(ctx)
+    success.setTitle("Injection Successful!")
+    success.setMessage("Mubarak ho Mohammad Usman! Safe Dynamic Cipher System safely inject ho gaya hai.")
+    success.setPositiveButton("OK", nil)
+    local sd = success.create()
+    if service then sd.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
+    sd.show()
+  end
+}
+
+btnGoBack.setOnClickListener{
+  onClick = function(v)
+    if mainDialog then 
+      mainDialog.dismiss() 
+    end
+  end
+}
