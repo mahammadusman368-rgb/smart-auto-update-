@@ -1,8 +1,7 @@
 -- Smart-auto-update Creator: Mohammad Usman
 -- Language: AndroLua+ (Lua)
--- Target: Jieshuo Screen Reader Auto-Update System Injector (High Security Hex Mixed)
--- Compatibility: Android 8.0+ & All Jieshuo Versions (Super Fast)
--- Version: 4.9 (Hex Mixed Encryption & Matched Decryptor)
+-- Target: Jieshuo Screen Reader Auto-Update System Injector
+-- Version: 4.8 (Fully Fixed - No setView Errors)
 
 require "import"
 import "android.widget.*"
@@ -15,76 +14,34 @@ import "android.content.Context"
 import "android.content.Intent"
 import "android.net.Uri"
 import "android.content.ClipData"
-import "android.text.InputType"
+import "android.net.ConnectivityManager"
+import "android.net.NetworkInfo"
 
 local ctx = service or activity
 if not ctx then return end
 
--- PATH CONFIGURATIONS
 local pluginsPath = "/storage/emulated/0/解说/Plugins/"
 local toolsPath = "/storage/emulated/0/解说/Tools/"
-local configFilePath = "/storage/emulated/0/解说/Tools/smart_auto_update_config.dat"
-local passFilePath = "/storage/emulated/0/解说/Tools/smart_pass_config.dat"
 local currentSearchPath = pluginsPath
 local whatsappNumber = "923261421100"
+local cipherKey = 85
 
--- Alert & Speech Engine
-local function speakText(text)
-  if service and service.speak then
-    service.speak(text)
-  else
-    Toast.makeText(ctx, text, 1).show()
-  end
-end
-
--- Passcode Storage Mechanics
-local function getMasterPassword()
-  local f = io.open(passFilePath, "r")
-  if f then
-    local pass = f:read("*l")
-    f:close()
-    if pass and pass:gsub("^%s*(.-)%s*$", "%1") ~= "" then
-      return pass:gsub("^%s*(.-)%s*$", "%1")
+-- Safe Dialog Show Function
+local function showDialogSafe(dialog)
+    if service and dialog then
+        pcall(function() dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end)
     end
-  end
-  return "12345" -- Default init password
+    pcall(function() dialog.show() end)
 end
 
-local function saveMasterPassword(newPass)
-  local f = io.open(passFilePath, "w")
-  if f then
-    f:write(newPass)
-    f:close()
-    return true
-  end
-  return false
+-- انٹرنیٹ چیک کرنے کا فنکشن
+local function isInternetConnected()
+    local cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE)
+    local activeNetwork = cm.getActiveNetworkInfo()
+    return activeNetwork ~= nil and activeNetwork.isConnected()
 end
 
--- App Configuration Storage
-local function saveUserConfig(mainUrl, verUrl, curVer)
-  local f = io.open(configFilePath, "w")
-  if f then
-    f:write(mainUrl .. "\n" .. verUrl .. "\n" .. curVer)
-    f:close()
-  end
-end
-
-local function loadUserConfig()
-  local f = io.open(configFilePath, "r")
-  if f then
-    local mainUrl = f:read("*l") or ""
-    local verUrl = f:read("*l") or ""
-    local curVer = f:read("*l") or "1.0"
-    f:close()
-    return mainUrl, verUrl, curVer
-  end
-  return "", "", "1.0"
-end
-
-local savedMain, savedVer, savedCurVer = loadUserConfig()
-
--- MAIN USER INTERFACE LAYOUT
-local layout = {
+local mainLayout = {
   ScrollView,
   layout_width = "fill",
   layout_height = "fill",
@@ -106,13 +63,13 @@ local layout = {
       padding = "5dp",
     },
     {
-      EditText, id = "editMainLuaLink", text = savedMain, hint = "Main Lua Link", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
+      EditText, id = "editMainLuaLink", hint = "Main Lua Link", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
     },
     {
-      EditText, id = "editVersionLink", text = savedVer, hint = "Version Link", layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
+      EditText, id = "editVersionLink", hint = "Version Link", layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
     },
     {
-      EditText, id = "editCurrentVersion", text = savedCurVer, hint = "Current Version", layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
+      EditText, id = "editCurrentVersion", text = "1.0", hint = "Current Version", layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
     },
     {
       CheckBox, id = "checkTargetType", text = "Check for Tools (Uncheck for Plugins)", layout_width = "fill", layout_height = "wrap", layout_marginTop = "12dp",
@@ -127,12 +84,6 @@ local layout = {
       Button, id = "btnInject", text = "Inject Auto Update System", backgroundColor = 0xFF009688, textColor = 0xFFFFFFFF, layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
     },
     {
-      Button, id = "btnDecrypt", text = "Decrypt / Restore Original Code", backgroundColor = 0xFFD32F2F, textColor = 0xFFFFFFFF, layout_width = "fill", layout_height = "wrap", layout_marginTop = "8dp",
-    },
-    {
-      Button, id = "btnChangePasscode", text = "Change Master Passcode", backgroundColor = 0xFFF57C00, textColor = 0xFFFFFFFF, layout_width = "fill", layout_height = "wrap", layout_marginTop = "8dp",
-    },
-    {
       Button, id = "btnAboutSupport", text = "About and Support", layout_width = "fill", layout_height = "wrap", layout_marginTop = "8dp",
     },
     {
@@ -141,13 +92,9 @@ local layout = {
   }
 }
 
-local mainDialog = nil
-mainDialog = AlertDialog.Builder(ctx).setView(loadlayout(layout)).create()
-if service then mainDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-
-mainDialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+local mainDialog = AlertDialog.Builder(ctx).setView(loadlayout(mainLayout)).create()
+showDialogSafe(mainDialog)
 mainDialog.setCancelable(false)
-mainDialog.show()
 
 checkTargetType.setOnCheckedChangeListener{
   onCheckedChanged = function(button, isChecked)
@@ -182,7 +129,7 @@ btnOpenList.setOnClickListener{
   onClick = function(v)
     local items = getFolderList(currentSearchPath)
     if #items == 0 then 
-      speakText("No active folders found with main.lua!")
+      Toast.makeText(ctx, "No active folders found with main.lua!", 0).show() 
       return 
     end
     local listDialog = AlertDialog.Builder(ctx)
@@ -191,8 +138,7 @@ btnOpenList.setOnClickListener{
         editSelectedName.setText(items[which + 1]) 
       end)
       .create()
-    if service then listDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-    listDialog.show()
+    showDialogSafe(listDialog)
   end
 }
 
@@ -211,180 +157,56 @@ local function safeLiteralReplace(str, placeholder, extraValue)
   return str:gsub(placeholder, escapedValue)
 end
 
--- HEXADECIMAL ABC MIX ENCRYPTION & DECRYPTION HELPERS
-local function hexMixEncrypt(data)
+local function xorCipherEncrypt(data, key)
   local t = {}
   for i = 1, #data do
-    table.insert(t, string.format("\\x%02X", data:byte(i)))
+    local b = data:byte(i)
+    table.insert(t, string.format("%02x", bit32.bxor(b, key)))
   end
   return table.concat(t)
 end
 
--- DYNAMIC PASSCODE CHANGING SYSTEM
-btnChangePasscode.setOnClickListener{
+btnAboutSupport.setOnClickListener{
   onClick = function(v)
-    local oldPassInput = EditText(ctx)
-    oldPassInput.setInputType(InputType.TYPE_CLASS_NUMBER)
-    oldPassInput.setHint("Enter Old 5-Digit Passcode")
-    
-    local verifyDialog = AlertDialog.Builder(ctx)
-      .setTitle("Passcode Change: Step 1")
-      .setMessage("Security verification ke liye pehle apna purana passcode darj karein:")
-      .setView(oldPassInput)
-      .setPositiveButton("Verify", function(d1, w1)
-        local enteredOld = tostring(oldPassInput.getText()):gsub("^%s*(.-)%s*$", "%1")
-        local actualOld = getMasterPassword()
-        
-        if enteredOld ~= actualOld then
-          speakText("Purana passcode galat hai! Tabdeeli blocked.")
-          return
-        end
-        
-        local newPassInput = EditText(ctx)
-        newPassInput.setInputType(InputType.TYPE_CLASS_NUMBER)
-        newPassInput.setHint("Enter New 5-Digit Passcode")
-        
-        local updateDialog = AlertDialog.Builder(ctx)
-          .setTitle("Passcode Change: Step 2")
-          .setMessage("Purana passcode verify ho gaya! Ab apna naya 5-digit passcode likhein:")
-          .setView(newPassInput)
-          .setCancelable(false)
-          .setPositiveButton("Save New Passcode", function(d2, w2)
-            local enteredNew = tostring(newPassInput.getText()):gsub("^%s*(.-)%s*$", "%1")
-            if #enteredNew ~= 5 or not tonumber(enteredNew) then
-              speakText("Masla! Passcode sirf 5-digit ka number hona chahiye.")
-              return
-            end
-            
-            if saveMasterPassword(enteredNew) then
-              speakText("Naya passcode kamyabi se save ho gaya hai!")
-            else
-              speakText("Error: Configuration file par system write nahi kar saka.")
-            end
-          end)
-          .setNegativeButton("Cancel", nil)
-          .create()
-          
-        if service then updateDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-        updateDialog.show()
+    -- Simple TextView dialog instead of complex layout
+    local supportDialog = AlertDialog.Builder(ctx)
+      .setTitle("About & Support")
+      .setMessage("Smart-auto-update Creator\nMohammad Usman\n\nWhatsApp: +" .. whatsappNumber .. "\n\nFor help, bugs, or features request,\ncontact on WhatsApp.")
+      .setPositiveButton("Copy Number", function()
+        local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+        local clip = ClipData.newPlainText("WhatsApp Number", whatsappNumber)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(ctx, "Number copied!", 0).show()
       end)
-      .setNegativeButton("Cancel", nil)
+      .setNeutralButton("WhatsApp", function()
+        pcall(function()
+          local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=" .. whatsappNumber))
+          intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          ctx.startActivity(intent)
+        end)
+      end)
+      .setNegativeButton("Close", nil)
       .create()
-      
-    if service then verifyDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-    verifyDialog.show()
+    showDialogSafe(supportDialog)
   end
 }
 
--- SECURE DECRYPTION RUNTIME ENGINE (Matched with Hex Mix)
-btnDecrypt.setOnClickListener{
-  onClick = function(v)
-    local selectedFolder = editSelectedName.Text:gsub("^%s*(.-)%s*$", "%1")
-    if selectedFolder == "" then
-      speakText("Meherbani karke pehle list se target extension select karein!")
-      return
-    end
-    
-    local targetFolder = currentSearchPath .. selectedFolder
-    local targetMainFile = targetFolder .. "/main.lua"
-    local targetOldFile = targetFolder .. "/old_main.lua"
-    local targetVersionFile = targetFolder .. "/version.txt"
-    
-    if not File(targetOldFile).exists() then
-      speakText("Is extension ke andar koi backup ya encrypted code nahi mila!")
-      return
-    end
-    
-    local pInput = EditText(ctx)
-    pInput.setInputType(InputType.TYPE_CLASS_NUMBER)
-    pInput.setHint("Enter 5-Digit Passcode")
-    
-    local passDialog = AlertDialog.Builder(ctx)
-      .setTitle("Security Verification")
-      .setMessage("Original code restore karne ke liye 5-digit passcode enter karein:")
-      .setView(pInput)
-      .setCancelable(false)
-      .setPositiveButton("Verify & Restore", function(d, w)
-        local enteredPass = tostring(pInput.getText()):gsub("^%s*(.-)%s*$", "%1")
-        local currentMasterPass = getMasterPassword()
-        
-        if enteredPass ~= currentMasterPass then
-          speakText("Galat password! Decryption blocked.")
-          return
-        end
-        
-        local rf = io.open(targetOldFile, "r")
-        local backupData = rf and rf:read("*a") or ""
-        if rf then rf:close() end
-        
-        if backupData:find("^xcipHex:") then
-          local hexPayload = backupData:sub(9)
-          local decryptedOriginalCode = ""
-          
-          for hexPair in hexPayload:gmatch("\\x(%x%x)") do
-            decryptedOriginalCode = decryptedOriginalCode .. string.char(tonumber(hexPair, 16))
-          end
-          
-          if decryptedOriginalCode and decryptedOriginalCode ~= "" then
-            local wf = io.open(targetMainFile, "w")
-            if wf then
-              wf:write(decryptedOriginalCode)
-              wf:close()
-              
-              -- Clean tracking injections
-              File(targetOldFile).delete()
-              File(targetVersionFile).delete()
-              
-              speakText("Mubarak ho! Code kamyabi se decrypt aur restore ho gaya hai.")
-              
-              local sDlg = AlertDialog.Builder(ctx)
-                .setTitle("Decryption Success")
-                .setMessage("Extension ko kamyabi se purani asli halat mein plain code mein badal diya gaya hai!")
-                .setPositiveButton("OK", nil)
-                .create()
-              if service then sDlg.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-              sDlg.show()
-            else
-              speakText("System error: Main file par overwrite write fail ho gaya.")
-            end
-          else
-            speakText("Masla! Data decrypt nahi ho saka, core corrupted lagti hai.")
-          end
-        else
-          speakText("Backup file secure valid structure mein nahi hai.")
-        end
-      end)
-      .setNegativeButton("Cancel", nil)
-      .create()
-      
-    if service then passDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-    passDialog.show()
-  end
-}
-
--- SECURE SYSTEM INJECT ENGINE (Hex Mixed Protection)
 btnInject.setOnClickListener{
   onClick = function(v)
-    local rawVersionLink = editVersionLink.Text:gsub("^%s*(.-)%s*$", "%1")
-    local rawMainLuaLink = editMainLuaLink.Text:gsub("^%s*(.-)%s*$", "%1")
+    if not isInternetConnected() then
+      Toast.makeText(ctx, "براہ کرم پہلے انٹرنیٹ آن کریں!", 1).show()
+      return
+    end
+    
+    local versionLink = makeStrictRawLink(editVersionLink.Text)
+    local mainLuaLink = makeStrictRawLink(editMainLuaLink.Text)
     local startVersion = editCurrentVersion.Text:gsub("^%s*(.-)%s*$", "%1")
     local selectedFolder = editSelectedName.Text:gsub("^%s*(.-)%s*$", "%1")
     
-    if rawVersionLink == "" and rawMainLuaLink == "" and selectedFolder == "" then
-      speakText("Pehle tamaam fields ko fill karo!")
-      return
-    elseif rawVersionLink == "" or rawMainLuaLink == "" then
-      speakText("Pehle update ya download link add karo!")
-      return
-    elseif selectedFolder == "" then
-      speakText("Meherbani karke target folder select karein!")
+    if versionLink == "" or mainLuaLink == "" or startVersion == "" or selectedFolder == "" then
+      Toast.makeText(ctx, "Meherbani karke saari fields ko fill karein!", 0).show() 
       return
     end
-    
-    local versionLink = makeStrictRawLink(rawVersionLink)
-    local mainLuaLink = makeStrictRawLink(rawMainLuaLink)
-    
-    saveUserConfig(editMainLuaLink.Text, editVersionLink.Text, editCurrentVersion.Text)
     
     local targetFolder = currentSearchPath .. selectedFolder
     local targetMainFile = targetFolder .. "/main.lua"
@@ -403,20 +225,11 @@ btnInject.setOnClickListener{
       end
     end
     
-    local hasMyToolSystem = originalCode:find("_0xSmartAutoUpdateCore")
-    local hasForeignSystem = originalCode:find("_0xUpdUrl") or originalCode:find("updateURL") or originalCode:find("downloadURL") or originalCode:find("Http.get")
-    
-    local overrideModeActive = false
-    
-    if hasMyToolSystem then
-      speakText("Is extension mein aapka update system pehle se laga hua hai!")
-      return
-    elseif hasForeignSystem and not hasMyToolSystem then
-      overrideModeActive = true
-    end
-    
-    if originalCode ~= "" and not originalCode:find("^xcipHex:") and not overrideModeActive then
-      local encryptedBackup = "xcipHex:" .. hexMixEncrypt(originalCode)
+    if originalCode ~= "" and not originalCode:find("updateURL = ") and not originalCode:find("payload = ") then
+      local encryptedBackup = originalCode
+      if not originalCode:find("^xcip:") then
+        encryptedBackup = "xcip:" .. xorCipherEncrypt(originalCode, cipherKey)
+      end
       local wf = io.open(targetOldFile, "w")
       if wf then
         wf:write(encryptedBackup)
@@ -424,64 +237,78 @@ btnInject.setOnClickListener{
       end
     end
     
+    -- Fixed rawTemplate - Removed complex layouts, using simple message dialogs only
     local rawTemplate = [[require "import"
 import "com.androlua.Http"
 import "android.widget.Toast"
 import "android.app.AlertDialog"
+import "android.app.ProgressDialog"
 import "android.view.WindowManager"
 import "android.os.Handler"
 import "android.os.Looper"
 import "java.io.File"
 
-local _0xSmartAutoUpdateCore = true
+local updateURL = "__VERSION_URL__"
+local downloadURL = "__DOWNLOAD_URL__"
+local defaultVersion = "__DEFAULT_VERSION__"
+local oldPath = "__CURRENT_DIR__/old_main.lua"
+local versionPath = "__CURRENT_DIR__/version.txt"
+local secretKey = ]] .. cipherKey .. [[
 
-local _0xUpdUrl = "__VERSION_URL__"
-local _0xDwnUrl = "__DOWNLOAD_URL__"
-local _0xDefVer = "__DEFAULT_VERSION__"
-local _0xMPath  = "__CURRENT_DIR__/main.lua"
-local _0xOPath  = "__CURRENT_DIR__/old_main.lua"
-local _0xVPath  = "__CURRENT_DIR__/version.txt"
+local currentCtx = service or activity
 
-local function _0xXHexDecode(hexStr)
+local function showDialogSafe(dialog)
+    if service and dialog then
+        pcall(function() dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end)
+    end
+    pcall(function() dialog.show() end)
+end
+
+local function xcipDecode(hexStr)
     local t = {}
-    for hexPair in hexStr:gmatch("\\x(%x%x)") do
-        table.insert(t, string.char(tonumber(hexPair, 16)))
+    for i = 1, #hexStr, 2 do
+        local hexByte = hexStr:sub(i, i+1)
+        local b = tonumber(hexByte, 16)
+        if b then
+            table.insert(t, string.char(bit32.bxor(b, secretKey)))
+        end
     end
     return table.concat(t)
 end
 
-if File(_0xOPath).exists() then 
-    local f = io.open(_0xOPath, "r")
+-- Load old code if exists
+if File(oldPath).exists() then 
+    local f = io.open(oldPath, "r")
     if f then
         local content = f:read("*a")
         f:close()
-        if content:find("^xcipHex:") then
-            local rawCode = _0xXHexDecode(content:sub(9))
+        if content:find("^xcip:") then
+            local rawCode = xcipDecode(content:sub(6))
             local chunkExecuted = false
-            local compiledChunk, err = load(function()
+            local compiledChunk = load(function()
                 if chunkExecuted then return nil end
                 chunkExecuted = true
                 return rawCode
             end, "=old_main.lua", "bt", _G)
-            
             if compiledChunk then
-                local success, runtimeErr = pcall(compiledChunk)
-                if not success then pcall(dofile, _0xOPath) end
+                pcall(compiledChunk)
             else
-                pcall(dofile, _0xOPath)
+                pcall(dofile, oldPath)
             end
         else
-            pcall(dofile, _0xOPath)
+            pcall(dofile, oldPath)
         end
     end
 end
 
+-- Check for updates after delay
 Handler(Looper.getMainLooper()).postDelayed(Runnable{run=function()
-    Http.get(_0xUpdUrl, function(code, response)
+    Http.get(updateURL, function(code, response)
         if code == 200 and response then
             local serverFullContent = tostring(response)
-            local onlineVersion = serverFullContent:match("([^\r\n]+)") or _0xDefVer
+            local onlineVersion = serverFullContent:match("([^\r\n]+)") or defaultVersion
             onlineVersion = onlineVersion:gsub("^%s*(.-)%s*$", "%1")
+            
             if #onlineVersion > 15 then return end
             
             local updateMessage = ""
@@ -490,103 +317,105 @@ Handler(Looper.getMainLooper()).postDelayed(Runnable{run=function()
                 updateMessage = serverFullContent:sub(msgStart + 1):gsub("^%s*(.-)%s*$", "%1")
             end
             
-            local f = io.open(_0xVPath, "r")
-            local localFullContent = f and f:read("*a") or _0xDefVer
+            local f = io.open(versionPath, "r")
+            local localVersion = f and f:read("*a"):match("([^\r\n]+)") or defaultVersion
             if f then f:close() end
-            local localVersion = localFullContent:match("([^\r\n]+)") or _0xDefVer
             localVersion = localVersion:gsub("^%s*(.-)%s*$", "%1")
             
-            local currentCtx = service or activity
-            
             if onlineVersion ~= localVersion then
-                local updateAlertDlg = AlertDialog.Builder(currentCtx)
-                updateAlertDlg.setTitle("Update Available!")
-                local dialogMsg = "Server Version: " .. onlineVersion .. "\nYour Version: " .. localVersion
+                local msg = "Server Version: " .. onlineVersion .. "\nYour Version: " .. localVersion
                 if updateMessage ~= "" then
-                    dialogMsg = dialogMsg .. "\n\n[What's New]:\n" .. updateMessage
+                    msg = msg .. "\n\nWhat's New:\n" .. updateMessage
                 end
-                updateAlertDlg.setMessage(dialogMsg)
-                updateAlertDlg.setCancelable(false)
-                updateAlertDlg.setPositiveButton("Update", function(dialogInterface, itemIndex)
-                    Toast.makeText(currentCtx, "Downloading update...", 0).show()
-                    Http.get(_0xDwnUrl, function(c, content)
+                
+                local builder = AlertDialog.Builder(currentCtx)
+                builder.setTitle("Update Available!")
+                builder.setMessage(msg)
+                builder.setCancelable(false)
+                builder.setPositiveButton("Update", function()
+                    local progressDlg = ProgressDialog(currentCtx)
+                    progressDlg.setTitle("Updating...")
+                    progressDlg.setMessage("Downloading...")
+                    progressDlg.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
+                    progressDlg.setCancelable(false)
+                    showDialogSafe(progressDlg)
+                    
+                    Http.get(downloadURL, function(c, content)
                         if c == 200 and content then
                             local serverCode = tostring(content)
-                            if #serverCode < 10 then return end
-                            
                             local encryptedContent = serverCode
-                            if not serverCode:find("_0xUpdUrl") and not serverCode:find("^xcipHex:") then
-                                local t = {}
+                            
+                            if not serverCode:find("^xcip:") then
+                                local encTable = {}
                                 for i = 1, #serverCode do
-                                    table.insert(t, string.format("\\x%02X", serverCode:byte(i)))
+                                    local b = serverCode:byte(i)
+                                    table.insert(encTable, string.format("%02x", bit32.bxor(b, secretKey)))
                                 end
-                                encryptedContent = "xcipHex:" .. table.concat(t)
+                                encryptedContent = "xcip:" .. table.concat(encTable)
                             end
                             
-                            local mf = io.open(_0xOPath, "w")
+                            local mf = io.open(oldPath, "w")
                             if mf then mf:write(encryptedContent) mf:close() end
                             
-                            local vf = io.open(_0xVPath, "w")
+                            local vf = io.open(versionPath, "w")
                             if vf then vf:write(serverFullContent) vf:close() end
                             
+                            pcall(function() progressDlg.dismiss() end)
+                            
                             local successDlg = AlertDialog.Builder(currentCtx)
-                            successDlg.setTitle("Status")
-                            successDlg.setMessage("Update Successful! Please restart the extension.")
+                            successDlg.setTitle("Success")
+                            successDlg.setMessage("Update completed! Please restart the extension.")
                             successDlg.setPositiveButton("OK", nil)
-                            local sd2 = successDlg.create()
-                            if service then sd2.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-                            sd2.show()
+                            showDialogSafe(successDlg.create())
+                        else
+                            pcall(function() progressDlg.dismiss() end)
+                            Toast.makeText(currentCtx, "Download failed!", 1).show()
                         end
                     end)
                 end)
-                updateAlertDlg.setNegativeButton("Later", nil)
-                local d1 = updateAlertDlg.create()
-                if service then d1.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-                d1.show()
-                
-            elseif serverFullContent:gsub("^%s*(.-)%s*$", "%1") ~= localFullContent:gsub("^%s*(.-)%s*$", "%1") and updateMessage ~= "" then
-                local msgDialog = AlertDialog.Builder(currentCtx)
-                msgDialog.setTitle("Important Announcement")
-                msgDialog.setMessage(updateMessage)
-                msgDialog.setPositiveButton("OK", function()
-                    local vf = io.open(_0xVPath, "w")
-                    if vf then vf:write(serverFullContent) vf:close() end
-                end)
-                local d3 = msgDialog.create()
-                if service then d3.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-                d3.show()
+                builder.setNegativeButton("Later", nil)
+                showDialogSafe(builder.create())
             end
         end
     end)
 end}, 1500)]]
 
-    local finalCore = safeLiteralReplace(rawTemplate, "__VERSION_URL__", versionLink)
-    finalCore = safeLiteralReplace(finalCore, "__DOWNLOAD_URL__", mainLuaLink)
-    finalCore = safeLiteralReplace(finalCore, "__DEFAULT_VERSION__", startVersion)
-    finalCore = safeLiteralReplace(finalCore, "__CURRENT_DIR__", targetFolder)
+    local filledTemplate = safeLiteralReplace(rawTemplate, "__VERSION_URL__", versionLink)
+    filledTemplate = safeLiteralReplace(filledTemplate, "__DOWNLOAD_URL__", mainLuaLink)
+    filledTemplate = safeLiteralReplace(filledTemplate, "__DEFAULT_VERSION__", startVersion)
+    filledTemplate = safeLiteralReplace(filledTemplate, "__CURRENT_DIR__", targetFolder)
     
-    local encryptedPayload = hexMixEncrypt(finalCore)
+    local encryptedPayload = xorCipherEncrypt(filledTemplate, cipherKey)
     
-    local bootloaderCode = [[-- Trademark Label: _0xSmartAutoUpdateCore
-local _0xXBoot = "]] .. encryptedPayload .. [["
-local function _0xVRun(hexStr)
+    local bootloaderTemplate = [[-- Target: Jieshuo Auto Update Loader
+-- Secure Encryption Wrapper by Mohammad Usman
+
+local payload = "]] .. encryptedPayload .. [["
+local bKey = ]] .. cipherKey .. [[
+
+local payloadExecuted = false
+
+local loaderChunk, err = load(function()
+    if payloadExecuted then return nil end
+    payloadExecuted = true
     local t = {}
-    for hexPair in hexStr:gmatch("\\x(%x%x)") do
-        table.insert(t, string.char(tonumber(hexPair, 16)))
+    for i = 1, #payload, 2 do
+        local hb = payload:sub(i, i+1)
+        local b = tonumber(hb, 16)
+        if b then
+            table.insert(t, string.char(bit32.bxor(b, bKey)))
+        end
     end
-    local executed = false
-    local chunk, err = load(function()
-        if executed then return nil end
-        executed = true
-        return table.concat(t)
-    end, "=main.lua", "bt", _G)
-    if chunk then pcall(chunk) end
-end
-_0xVRun(_0xXBoot)]]
+    return table.concat(t)
+end, "=main.lua", "bt", _G)
+
+if loaderChunk then
+    pcall(loaderChunk)
+end]]
 
     local f = io.open(targetMainFile, "w")
     if f then 
-      f:write(bootloaderCode) 
+      f:write(bootloaderTemplate) 
       f:close() 
     else
       Toast.makeText(ctx, "Error: main.lua write failed!", 1):show()
@@ -602,104 +431,18 @@ _0xVRun(_0xXBoot)]]
       return
     end
     
-    if overrideModeActive then
-      speakText("Purana third-party update system remove karke naya core system laga diya gaya hai.")
-    else
-      speakText("Mubarak ho! Auto update system kamyabi se inject ho gaya.")
-    end
-    
     local success = AlertDialog.Builder(ctx)
     success.setTitle("Injection Successful!")
-    if overrideModeActive then
-      success.setMessage("Mubarak ho! Purana update system wipe karke aapka Smart-auto-update Core kamyabi se overwrite ho gaya hai.")
-    else
-      success.setMessage("Mubarak ho! Selected folder mein Dual-Core Protection kamyabi ke sath inject ho gaya hai.")
-    end
+    success.setMessage("Mubarak ho! " .. selectedFolder .. " mein auto-update system successfully inject ho gaya hai.")
     success.setPositiveButton("OK", nil)
-    local sd = success.create()
-    if service then sd.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-    sd.show()
-  end
-}
-
-btnAboutSupport.setOnClickListener{
-  onClick = function(v)
-    local supportLayout = {
-      LinearLayout,
-      orientation = "vertical",
-      layout_width = "fill",
-      layout_height = "wrap",
-      padding = "20dp",
-      {
-        TextView,
-        text = "Smart-auto-update Creator: Mohammad Usman",
-        textColor = 0xFF009688,
-        textSize = "18sp",
-        gravity = "center",
-        layout_width = "fill",
-        layout_height = "wrap",
-      },
-      {
-        TextView,
-        text = "WhatsApp: +" .. whatsappNumber,
-        textColor = 0xFF333333,
-        textSize = "15sp",
-        gravity = "center",
-        layout_width = "fill",
-        layout_height = "wrap",
-        layout_marginTop = "15dp",
-      },
-      {
-        Button, id = "btnCopyWhatsApp", text = "Copy WhatsApp Number", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
-      },
-      {
-        Button, id = "btnContactWhatsApp", text = "Contact WhatsApp", backgroundColor = 0xFF25D366, textColor = 0xFFFFFFFF, layout_width = "fill", layout_height = "wrap", layout_marginTop = "10dp",
-      },
-      {
-        Button, id = "btnSubBack", text = "Go Back", layout_width = "fill", layout_height = "wrap", layout_marginTop = "15dp",
-      },
-    }
-    
-    local supportDialog = AlertDialog.Builder(ctx).setView(loadlayout(supportLayout)).create()
-    if service then supportDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) end
-    supportDialog.setCancelable(false)
-    supportDialog.show()
-    
-    btnCopyWhatsApp.setOnClickListener{
-      onClick = function(view)
-        if Build.VERSION.SDK_INT >= 11 then
-          local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
-          local clip = ClipData.newPlainText("WhatsApp Number", whatsappNumber)
-          clipboard.setPrimaryClip(clip)
-        else
-          local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
-          clipboard.setText(whatsappNumber)
-        end
-        speakText("WhatsApp number copy ho gaya!")
-      end
-    }
-    
-    btnContactWhatsApp.setOnClickListener{
-      onClick = function(view)
-        local success, err = pcall(function()
-          local url = "https://api.whatsapp.com/send?phone=" .. whatsappNumber
-          local intent = Intent(Intent.ACTION_VIEW)
-          intent.setData(Uri.parse(url))
-          intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          ctx.startActivity(intent)
-        end)
-        if not success then speakText("WhatsApp open nahi ho saka.") end
-      end
-    }
-    
-    btnSubBack.setOnClickListener{
-      onClick = function(view) supportDialog.dismiss() end
-    }
+    showDialogSafe(success.create())
   end
 }
 
 btnGoBack.setOnClickListener{
   onClick = function(v)
-    if mainDialog then mainDialog.dismiss() end
+    if mainDialog then 
+      pcall(function() mainDialog.dismiss() end)
+    end
   end
 }
