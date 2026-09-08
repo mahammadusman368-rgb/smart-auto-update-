@@ -1,6 +1,6 @@
 -- Smart-auto-update Creator: Mohammad Usman
 -- Language: AndroLua+ (Lua)
--- Target: Jieshuo Screen Reader Auto-Update System Injector (High Security Hex Mixed)
+-- Target: Jieshuo Screen Reader Auto-Update System Injector
 -- Compatibility: Android 8.0+ & All Jieshuo Versions (Super Fast)
 -- Version: 4.9 (Hex Mixed Encryption & Matched Decryptor)
 
@@ -211,7 +211,7 @@ local function safeLiteralReplace(str, placeholder, extraValue)
   return str:gsub(placeholder, escapedValue)
 end
 
--- HEXADECIMAL ABC MIX ENCRYPTION & DECRYPTION HELPERS
+-- TEXT FILE HEX ENCRYPTOR (For old_main.lua & server downloads)
 local function hexMixEncrypt(data)
   local t = {}
   for i = 1, #data do
@@ -276,7 +276,7 @@ btnChangePasscode.setOnClickListener{
   end
 }
 
--- SECURE DECRYPTION RUNTIME ENGINE (Matched with Hex Mix)
+-- SECURE DECRYPTION RUNTIME ENGINE WITH HEX MATCHING
 btnDecrypt.setOnClickListener{
   onClick = function(v)
     local selectedFolder = editSelectedName.Text:gsub("^%s*(.-)%s*$", "%1")
@@ -317,10 +317,10 @@ btnDecrypt.setOnClickListener{
         local backupData = rf and rf:read("*a") or ""
         if rf then rf:close() end
         
+        -- Matching the new xcipHex logic
         if backupData:find("^xcipHex:") then
           local hexPayload = backupData:sub(9)
           local decryptedOriginalCode = ""
-          
           for hexPair in hexPayload:gmatch("\\x(%x%x)") do
             decryptedOriginalCode = decryptedOriginalCode .. string.char(tonumber(hexPair, 16))
           end
@@ -331,12 +331,10 @@ btnDecrypt.setOnClickListener{
               wf:write(decryptedOriginalCode)
               wf:close()
               
-              -- Clean tracking injections
               File(targetOldFile).delete()
               File(targetVersionFile).delete()
               
               speakText("Mubarak ho! Code kamyabi se decrypt aur restore ho gaya hai.")
-              
               local sDlg = AlertDialog.Builder(ctx)
                 .setTitle("Decryption Success")
                 .setMessage("Extension ko kamyabi se purani asli halat mein plain code mein badal diya gaya hai!")
@@ -351,7 +349,7 @@ btnDecrypt.setOnClickListener{
             speakText("Masla! Data decrypt nahi ho saka, core corrupted lagti hai.")
           end
         else
-          speakText("Backup file secure valid structure mein nahi hai.")
+          speakText("Backup file secure valid structure mein nahi hai (Ya bohot purana version hai).")
         end
       end)
       .setNegativeButton("Cancel", nil)
@@ -362,7 +360,7 @@ btnDecrypt.setOnClickListener{
   end
 }
 
--- SECURE SYSTEM INJECT ENGINE (Hex Mixed Protection)
+-- SECURE SYSTEM INJECT ENGINE
 btnInject.setOnClickListener{
   onClick = function(v)
     local rawVersionLink = editVersionLink.Text:gsub("^%s*(.-)%s*$", "%1")
@@ -565,10 +563,14 @@ end}, 1500)]]
     finalCore = safeLiteralReplace(finalCore, "__DEFAULT_VERSION__", startVersion)
     finalCore = safeLiteralReplace(finalCore, "__CURRENT_DIR__", targetFolder)
     
-    local encryptedPayload = hexMixEncrypt(finalCore)
+    -- DOUBLE ESCAPE BUG FIX FOR BOOTLOADER INJECTION:
+    local bootloaderPayload = ""
+    for i = 1, #finalCore do
+        bootloaderPayload = bootloaderPayload .. string.format("\\\\x%02X", finalCore:byte(i))
+    end
     
     local bootloaderCode = [[-- Trademark Label: _0xSmartAutoUpdateCore
-local _0xXBoot = "]] .. encryptedPayload .. [["
+local _0xXBoot = "]] .. bootloaderPayload .. [["
 local function _0xVRun(hexStr)
     local t = {}
     for hexPair in hexStr:gmatch("\\x(%x%x)") do
