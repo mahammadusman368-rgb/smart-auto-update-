@@ -9,11 +9,16 @@ import "android.content.ClipboardManager"
 import "android.graphics.Typeface"
 import "android.content.Intent"
 import "android.net.Uri"
+import "android.media.MediaRecorder"
+import "android.media.MediaPlayer"
+import "android.util.Base64"
 import "java.lang.String"
 import "java.io.File"
 import "java.io.FileReader"
 import "java.io.FileWriter"
 import "java.io.BufferedReader"
+import "java.io.FileInputStream"
+import "java.io.FileOutputStream"
 import "org.json.JSONObject"
 
 -- Firebase URLs
@@ -21,11 +26,13 @@ local db_url_chat = "https://mohammad-usman-23-default-rtdb.firebaseio.com/chat_
 local base_url_chat = "https://mohammad-usman-23-default-rtdb.firebaseio.com/chat_room/"
 local db_url_online = "https://mohammad-usman-23-default-rtdb.firebaseio.com/online_users.json"
 local base_url_online = "https://mohammad-usman-23-default-rtdb.firebaseio.com/online_users/"
-local base_url_profiles = "https://mohammad-usman-23-default-rtdb.firebaseio.com/users_profile/" -- Dusro ki profile dekhne ke liye
+local base_url_profiles = "https://mohammad-usman-23-default-rtdb.firebaseio.com/users_profile/" 
 
 local temp_dir = "/storage/emulated/0/解说/Plugins/Firebase Data Manager/temp/"
 local profile_file = temp_dir .. "user_profile.txt"
 local clear_key_file = temp_dir .. "cleared_chat_key.txt" 
+local audio_record_file = temp_dir .. "voice_record.m4a"
+local audio_play_file = temp_dir .. "voice_play.m4a"
 
 local currentUsername = ""
 local adminName = "Mohammad Usman"
@@ -38,6 +45,11 @@ local itemKeys = {}
 local itemValues = {}
 local rawMessages = {}
 local currentOnlineUsersList = {}
+
+-- Audio Variables
+local mediaRecorder = nil
+local chatPlayer = nil
+local isRecording = false
 
 -- Profile Setup Variables
 local currentProfileStep = 1
@@ -110,16 +122,6 @@ local function readFileText(path)
     return table.concat(out, "\n")
 end
 
-local function jsonEscape(str)
-    if not str then return "" end
-    str = tostring(str)
-    str = str:gsub("\\", "\\\\")
-    str = str:gsub('"', '\\"')
-    str = str:gsub("\n", "\\n")
-    str = str:gsub("\r", "\\r")
-    return str
-end
-
 local function executeHttp(method, urlStr, payload, callback)
     local reqId = tostring(os.time()) .. tostring(math.random(1000, 9999))
     local statusFile = temp_dir .. reqId .. ".txt"
@@ -190,199 +192,90 @@ local function executeHttp(method, urlStr, payload, callback)
     poll()
 end
 
--- ================= LAYOUT =================
--- NOTE: Har screen mein Button Bar pehle define ki gayi hai aur 'layout_alignParentBottom="true"' lagaya gaya hai
--- Taake button ZINDAGI BHAR niche lock rahein aur layour error kabhi na aaye.
+-- ================= BASE64 AUDIO LOGIC =================
+local function encodeFileToBase64(path)
+    local ok, b64 = pcall(function()
+        local file = File(path)
+        local len = file.length()
+        local java_lang_reflect_Array = luajava.bindClass("java.lang.reflect.Array")
+        local java_lang_Byte = luajava.bindClass("java.lang.Byte")
+        local buffer = java_lang_reflect_Array.newInstance(java_lang_Byte.TYPE, len)
+        local fis = FileInputStream(file)
+        fis.read(buffer)
+        fis.close()
+        return Base64.encodeToString(buffer, Base64.NO_WRAP)
+    end)
+    if ok then return b64 else return "" end
+end
 
+-- ================= LAYOUT =================
 local main_layout = {
-    FrameLayout;
-    layout_width="fill";
-    layout_height="fill";
-    
-    -- 1. MAIN MENU SCREEN
-    {
-        RelativeLayout;
-        id="loginView";
-        layout_width="fill";
-        layout_height="fill";
-        
-        -- Lock at bottom
-        {
-            LinearLayout;
-            id="loginBottom";
-            orientation="vertical";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="10dp";
+    FrameLayout; layout_width="fill"; layout_height="fill";
+    { RelativeLayout; id="loginView"; layout_width="fill"; layout_height="fill";
+        { LinearLayout; id="loginBottom"; orientation="vertical"; layout_width="fill"; layout_alignParentBottom="true"; padding="10dp";
             { Button; id="btnOpenProfile"; text="Profile"; layout_width="fill"; layout_marginBottom="5dp" };
             { Button; id="btnJoin"; text="Join Room"; layout_width="fill"; layout_marginBottom="5dp" };
             { Button; id="btnAbout"; text="About & Support"; layout_width="fill"; layout_marginBottom="5dp" };
             { Button; id="btnCloseApp1"; text="Close Extension"; layout_width="fill" };
         };
-        -- Top Content
-        {
-            LinearLayout;
-            layout_width="fill";
-            layout_height="fill";
-            layout_above="loginBottom";
-            gravity="center";
+        { LinearLayout; layout_width="fill"; layout_height="fill"; layout_above="loginBottom"; gravity="center";
             { TextView; text="Global Live Chat Room"; textSize="24sp"; textColor="#000000"; };
         };
     };
-
-    -- 2. PROFILE SETUP (3 Steps)
-    {
-        RelativeLayout;
-        id="profileSetupView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="profileSetupBottom";
-            orientation="vertical";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="10dp";
+    { RelativeLayout; id="profileSetupView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="profileSetupBottom"; orientation="vertical"; layout_width="fill"; layout_alignParentBottom="true"; padding="10dp";
             { Button; id="btnProfileSaveStep"; text="Save & Next"; layout_width="fill"; layout_marginBottom="5dp" };
             { Button; id="btnProfileCancel"; text="Go Back"; layout_width="fill" };
         };
-        {
-            LinearLayout;
-            orientation="vertical";
-            layout_width="fill";
-            layout_height="fill";
-            layout_above="profileSetupBottom";
-            gravity="center_vertical";
-            padding="20dp";
+        { LinearLayout; orientation="vertical"; layout_width="fill"; layout_height="fill"; layout_above="profileSetupBottom"; gravity="center_vertical"; padding="20dp";
             { TextView; id="tvProfileStepHeader"; text="Setup Profile"; textSize="24sp"; textColor="#000000"; gravity="center"; layout_marginBottom="20dp" };
             { EditText; id="inputProfileData"; hint="Likhein..."; layout_width="fill"; textSize="18sp"; singleLine=true };
         };
     };
-
-    -- 3. PROFILE VIEW SCREEN (Jahan Edit aur Back niche fix hain)
-    {
-        RelativeLayout;
-        id="profileShowView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="profileShowBottom";
-            orientation="horizontal";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="5dp";
+    { RelativeLayout; id="profileShowView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="profileShowBottom"; orientation="horizontal"; layout_width="fill"; layout_alignParentBottom="true"; padding="5dp";
             { Button; id="btnEditProfile"; text="Edit Profile"; layout_weight="1" };
             { Button; id="btnBackFromProfileView"; text="Go Back"; layout_weight="1" };
         };
-        {
-            LinearLayout;
-            orientation="vertical";
-            layout_width="fill";
-            layout_height="fill";
-            layout_above="profileShowBottom";
-            padding="20dp";
-            gravity="center_vertical";
+        { LinearLayout; orientation="vertical"; layout_width="fill"; layout_height="fill"; layout_above="profileShowBottom"; padding="20dp"; gravity="center_vertical";
             { TextView; text="Your Profile"; textSize="24sp"; textColor="#000000"; gravity="center"; layout_marginBottom="20dp" };
             { TextView; id="tvShowName"; textSize="18sp"; textColor="#333333"; layout_marginBottom="10dp" };
             { TextView; id="tvShowLoc"; textSize="18sp"; textColor="#333333"; layout_marginBottom="10dp" };
             { TextView; id="tvShowBio"; textSize="18sp"; textColor="#333333"; layout_marginBottom="10dp" };
         };
     };
-
-    -- 4. ABOUT & SUPPORT SCREEN
-    {
-        RelativeLayout;
-        id="aboutView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="aboutBottom";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="10dp";
+    { RelativeLayout; id="aboutView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="aboutBottom"; layout_width="fill"; layout_alignParentBottom="true"; padding="10dp";
             { Button; id="btnBackAbout"; text="Go Back"; layout_width="fill" };
         };
-        {
-            LinearLayout;
-            orientation="vertical";
-            layout_width="fill";
-            layout_height="fill";
-            layout_above="aboutBottom";
-            gravity="center";
-            padding="20dp";
+        { LinearLayout; orientation="vertical"; layout_width="fill"; layout_height="fill"; layout_above="aboutBottom"; gravity="center"; padding="20dp";
             { TextView; text="Global Live Chat Room - Creator: Mohammad Usman"; textSize="18sp"; textColor="#000000"; gravity="center"; layout_marginBottom="20dp" };
             { TextView; id="tvWaDisplay"; text="WhatsApp: " .. myWhatsAppDisplay; textSize="16sp"; textColor="#333333"; layout_marginBottom="20dp" };
             { Button; id="btnCopyWa"; text="Copy WhatsApp Number"; layout_width="fill"; layout_marginBottom="10dp" };
             { Button; id="btnContactWa"; text="Contact WhatsApp"; layout_width="fill" };
         };
     };
-    
-    -- 5. CHAT SCREEN (Buttons strictly locked at Bottom)
-    {
-        RelativeLayout;
-        id="chatView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="chatBottom";
-            orientation="vertical";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            backgroundColor="#eeeeee";
-            padding="2dp";
-            
+    { RelativeLayout; id="chatView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="chatBottom"; orientation="vertical"; layout_width="fill"; layout_alignParentBottom="true"; backgroundColor="#eeeeee"; padding="2dp";
             { TextView; id="replyText"; text=""; textColor="#d32f2f"; textSize="14sp"; padding="2dp"; visibility=View.GONE; };
-            {
-                LinearLayout;
-                orientation="horizontal";
-                layout_width="fill";
-                gravity="center_vertical";
+            { LinearLayout; id="normalChatBar"; orientation="horizontal"; layout_width="fill"; gravity="center_vertical";
                 { EditText; id="inputMessage"; hint="Message..."; layout_weight="1"; textSize="14sp"; singleLine=true };
+                { Button; id="btnMic"; text="Mic"; textSize="12sp"; padding="5dp" };
                 { Button; id="btnSend"; text="Send"; textSize="12sp"; padding="5dp" };
                 { Button; id="btnMore"; text="More"; textSize="12sp"; padding="5dp" };
                 { Button; id="btnBack"; text="Back"; textSize="12sp"; padding="5dp" };
             };
+            { LinearLayout; id="audioPreviewBar"; orientation="horizontal"; layout_width="fill"; gravity="center_vertical"; visibility=View.GONE;
+                { TextView; id="tvAudioStatus"; text="🎤 Audio Recorded"; layout_weight="1"; textSize="14sp"; padding="5dp"; textColor="#000000" };
+                { Button; id="btnPlayPreview"; text="Play"; textSize="12sp"; padding="5dp" };
+                { Button; id="btnSendAudio"; text="Send"; textSize="12sp"; padding="5dp" };
+                { Button; id="btnCancelAudio"; text="Cancel"; textSize="12sp"; padding="5dp" };
+            };
         };
-        
-        -- ListView defined AFTER bottom bar to use layout_above safely
-        {
-            ListView;
-            id="chatList";
-            layout_width="fill";
-            layout_height="fill";
-            layout_above="chatBottom";
-            layout_alignParentTop="true";
-        };
+        { ListView; id="chatList"; layout_width="fill"; layout_height="fill"; layout_above="chatBottom"; layout_alignParentTop="true"; };
     };
-
-    -- 6. MORE MENU SCREEN
-    {
-        RelativeLayout;
-        id="moreMenuView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="moreBottom";
-            orientation="vertical";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="15dp";
-            backgroundColor="#e0e0e0"; 
-            
+    { RelativeLayout; id="moreMenuView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="moreBottom"; orientation="vertical"; layout_width="fill"; layout_alignParentBottom="true"; padding="15dp"; backgroundColor="#e0e0e0"; 
             { TextView; text="More Options"; textSize="18sp"; textColor="#000000"; gravity="center"; layout_marginBottom="10dp" };
             { Button; id="btnClear"; text="Clear Chat"; layout_width="fill"; layout_marginBottom="5dp" };
             { Button; id="btnMute"; text="Mute/Unmute TTS"; layout_width="fill"; layout_marginBottom="5dp" };
@@ -390,70 +283,18 @@ local main_layout = {
             { Button; id="btnBackFromMore"; text="Go Back"; layout_width="fill" };
         };
     };
-
-    -- 7. ONLINE USERS SCREEN
-    {
-        RelativeLayout;
-        id="onlineView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="onlineBottom";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="10dp";
+    { RelativeLayout; id="onlineView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="onlineBottom"; layout_width="fill"; layout_alignParentBottom="true"; padding="10dp";
             { Button; id="btnBackOnline"; text="Go Back"; layout_width="fill" };
         };
-        
-        {
-            TextView;
-            id="tvOnlineHeader";
-            text="Total Online Users: Loading...";
-            textSize="18sp";
-            textColor="#000000";
-            layout_width="fill";
-            layout_alignParentTop="true";
-            padding="15dp";
-            gravity="center";
-        };
-        
-        {
-            ListView;
-            id="onlineList";
-            layout_width="fill";
-            layout_height="fill";
-            layout_below="tvOnlineHeader";
-            layout_above="onlineBottom";
-        };
+        { TextView; id="tvOnlineHeader"; text="Total Online Users: Loading..."; textSize="18sp"; textColor="#000000"; layout_width="fill"; layout_alignParentTop="true"; padding="15dp"; gravity="center"; };
+        { ListView; id="onlineList"; layout_width="fill"; layout_height="fill"; layout_below="tvOnlineHeader"; layout_above="onlineBottom"; };
     };
-
-    -- 8. VIEW OTHER USER'S PROFILE SCREEN (Naya Page)
-    {
-        RelativeLayout;
-        id="otherProfileView";
-        layout_width="fill";
-        layout_height="fill";
-        visibility=View.GONE;
-        
-        {
-            LinearLayout;
-            id="otherProfileBottom";
-            layout_width="fill";
-            layout_alignParentBottom="true";
-            padding="10dp";
+    { RelativeLayout; id="otherProfileView"; layout_width="fill"; layout_height="fill"; visibility=View.GONE;
+        { LinearLayout; id="otherProfileBottom"; layout_width="fill"; layout_alignParentBottom="true"; padding="10dp";
             { Button; id="btnBackFromOtherProfile"; text="Go Back"; layout_width="fill" };
         };
-        {
-            LinearLayout;
-            orientation="vertical";
-            layout_width="fill";
-            layout_height="fill";
-            layout_above="otherProfileBottom";
-            padding="20dp";
-            gravity="center_vertical";
+        { LinearLayout; orientation="vertical"; layout_width="fill"; layout_height="fill"; layout_above="otherProfileBottom"; padding="20dp"; gravity="center_vertical";
             { TextView; id="tvOtherName"; textSize="20sp"; textColor="#000000"; layout_marginBottom="10dp" };
             { TextView; id="tvOtherLoc"; textSize="18sp"; textColor="#333333"; layout_marginBottom="10dp" };
             { TextView; id="tvOtherBio"; textSize="18sp"; textColor="#333333"; layout_marginBottom="10dp" };
@@ -463,7 +304,6 @@ local main_layout = {
 
 local ui = {}
 local view = loadlayout(main_layout, ui)
-
 local dialog = AlertDialog.Builder(service)
 dialog.setView(view)
 dialog.setCancelable(false)
@@ -472,7 +312,6 @@ alert.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
 alert.show()
 
 -- ================= LOGIC =================
-
 local function beepAndVibrate()
     pcall(function()
         require "import"
@@ -483,12 +322,22 @@ local function beepAndVibrate()
     end)
 end
 
+local function stopAnyPlayingAudio()
+    pcall(function()
+        if chatPlayer then 
+            chatPlayer.stop() 
+            chatPlayer.release() 
+            chatPlayer = nil 
+        end
+    end)
+end
+
 local function loadMessages()
     if not isChatActive then return end
     executeHttp("GET", db_url_chat, nil, function(code, res)
         if not isChatActive then return end
         if code == "200" and res ~= "null" and res ~= "" then
-            local ok, err = pcall(function()
+            pcall(function()
                 local json = JSONObject(res)
                 local keys = {}
                 local iter = json.keys()
@@ -510,15 +359,25 @@ local function loadMessages()
                         local text = obj.getString("text")
                         local rep = obj.has("replyTo") and obj.getString("replyTo") or ""
                         local tme = obj.has("time") and obj.getString("time") or ""
+                        local audB64 = obj.has("audioBase64") and obj.getString("audioBase64") or ""
                         
-                        rawMessages[k] = {sender=sender, text=text, replyTo=rep, time=tme}
+                        rawMessages[k] = {sender=sender, text=text, replyTo=rep, time=tme, audioBase64=audB64}
                         
                         local dispName = sender
-                        if sender == adminName then dispName = "[Admin 👑] " .. sender end
+                        if sender == adminName then 
+                            dispName = "[Admin 👑] " .. sender 
+                        end
                         
                         local displayStr = dispName .. " (" .. tme .. "):\n"
-                        if rep ~= "" then displayStr = displayStr .. "Replying to " .. rep .. " -> " end
-                        displayStr = displayStr .. text
+                        if rep ~= "" then 
+                            displayStr = displayStr .. "Replying to " .. rep .. " -> " 
+                        end
+                        
+                        if audB64 ~= "" then 
+                            displayStr = displayStr .. "🎤 [Voice Message]" 
+                        else 
+                            displayStr = displayStr .. text 
+                        end
                         
                         table.insert(newValues, displayStr)
                         table.insert(tempKeys, k)
@@ -526,11 +385,15 @@ local function loadMessages()
                         if not knownKeys[k] then
                             knownKeys[k] = true
                             hasNewMsg = true
-                            latestSpeak = dispName .. " ne kaha: " .. text
+                            if audB64 ~= "" then 
+                                latestSpeak = dispName .. " ne ek voice message bheja hai." 
+                            else 
+                                latestSpeak = dispName .. " ne kaha: " .. text 
+                            end
                             if text:find("@" .. currentUsername) then amIMentioned = true end
                         end
-                    else
-                        knownKeys[k] = true
+                    else 
+                        knownKeys[k] = true 
                     end
                 end
                 
@@ -539,18 +402,18 @@ local function loadMessages()
                 ui.chatList.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, String(itemValues)))
                 
                 if isFirstLoad then
-                    if validMsgCount == 0 then
-                        service.speak("Koi bhi message nahi aaya chat room mein")
-                    else
-                        service.speak("Chat room mein " .. validMsgCount .. " message aaye hain")
+                    if validMsgCount == 0 then 
+                        service.speak("Koi message nahi aaya") 
+                    else 
+                        service.speak("Chat room mein " .. validMsgCount .. " message aaye hain") 
                     end
                     isFirstLoad = false
                 elseif hasNewMsg then
                     beepAndVibrate()
-                    if amIMentioned then
-                        service.speak("Aapko chat mein mention kiya gaya hai!")
-                    else
-                        if not ttsMuted then service.speak(latestSpeak) end
+                    if amIMentioned then 
+                        service.speak("Aapko mention kiya gaya hai!") 
+                    else 
+                        if not ttsMuted then service.speak(latestSpeak) end 
                     end
                     ui.chatList.setSelection(#itemValues - 1)
                 end
@@ -559,334 +422,442 @@ local function loadMessages()
     end)
 end
 
--- REAL-TIME BACKGROUND CHECKING & HEARTBEAT (Every 5 seconds)
 local function startAutoRefresh()
     if not isChatActive then return end
-    
-    -- Apni presence (heartbeat) send karo UNIX timestamp ke sath (30 sec logic ke liye)
     local safeKey = currentUsername:gsub("%s+", "_")
     local current_time = os.time()
-    executeHttp("PUT", base_url_online .. safeKey .. ".json", '{"lastActive":'..current_time..'}', function() end)
     
+    local heartObj = JSONObject()
+    heartObj.put("lastActive", current_time)
+    
+    executeHttp("PUT", base_url_online .. safeKey .. ".json", heartObj.toString(), function() end)
     loadMessages()
     ui_handler.postDelayed(Runnable{run=startAutoRefresh}, 5000)
-end
-
--- ================= PROFILE SETUP LOGIC =================
-local function startProfileSetup()
-    currentProfileStep = 1
-    tempName, tempLoc, tempBio = "", "", ""
-    ui.loginView.setVisibility(View.GONE)
-    ui.profileShowView.setVisibility(View.GONE)
-    ui.profileSetupView.setVisibility(View.VISIBLE)
-    
-    ui.tvProfileStepHeader.setText("Step 1: Name")
-    ui.inputProfileData.setText("")
-    ui.inputProfileData.setHint("Apna naam likhein...")
-    service.speak("User apna name add karo edit box mein")
-end
-
-local function showProfileInfo()
-    local n, l, b = getProfile()
-    ui.loginView.setVisibility(View.GONE)
-    ui.profileSetupView.setVisibility(View.GONE)
-    ui.profileShowView.setVisibility(View.VISIBLE)
-    
-    ui.tvShowName.setText("Name: " .. n)
-    ui.tvShowLoc.setText("Location: " .. l)
-    ui.tvShowBio.setText("About: " .. b)
-    service.speak("Profile menu open ho gaya hai")
 end
 
 ui.btnOpenProfile.onClick = function()
     local n, l, b = getProfile()
     if n == "" then
-        startProfileSetup()
+        currentProfileStep = 1 
+        tempName, tempLoc, tempBio = "", "", ""
+        ui.loginView.setVisibility(View.GONE) 
+        ui.profileSetupView.setVisibility(View.VISIBLE)
+        ui.tvProfileStepHeader.setText("Step 1: Name") 
+        ui.inputProfileData.setText("") 
+        ui.inputProfileData.setHint("Apna naam likhein...") 
+        service.speak("Name add karo")
     else
-        showProfileInfo()
+        ui.loginView.setVisibility(View.GONE) 
+        ui.profileShowView.setVisibility(View.VISIBLE)
+        ui.tvShowName.setText("Name: " .. n) 
+        ui.tvShowLoc.setText("Location: " .. l) 
+        ui.tvShowBio.setText("About: " .. b) 
+        service.speak("Profile open ho gayi")
     end
 end
 
 ui.btnProfileSaveStep.onClick = function()
     local txt = ui.inputProfileData.getText().toString()
-    if txt == "" then 
-        service.speak("Pehle text likhein") 
-        return 
-    end
+    if txt == "" then service.speak("Pehle text likhein") return end
     
     if currentProfileStep == 1 then
-        tempName = txt
-        currentProfileStep = 2
-        ui.tvProfileStepHeader.setText("Step 2: Location")
-        ui.inputProfileData.setText("")
-        ui.inputProfileData.setHint("Country, City likhein...")
-        service.speak("Apni location add karo")
-    
+        tempName = txt 
+        currentProfileStep = 2 
+        ui.tvProfileStepHeader.setText("Step 2: Location") 
+        ui.inputProfileData.setText("") 
+        ui.inputProfileData.setHint("Country, City...") 
+        service.speak("Location add karo")
     elseif currentProfileStep == 2 then
-        tempLoc = txt
-        currentProfileStep = 3
-        ui.tvProfileStepHeader.setText("Step 3: About You")
-        ui.inputProfileData.setText("")
-        ui.inputProfileData.setHint("Apne baare mein likhein...")
-        service.speak("Apne bare mein about add karo")
-    
+        tempLoc = txt 
+        currentProfileStep = 3 
+        ui.tvProfileStepHeader.setText("Step 3: About You") 
+        ui.inputProfileData.setText("") 
+        ui.inputProfileData.setHint("Apne baare mein...") 
+        service.speak("About add karo")
     elseif currentProfileStep == 3 then
-        tempBio = txt
+        tempBio = txt 
         saveProfile(tempName, tempLoc, tempBio)
-        
-        -- FIREBASE SYNC: Taki dusre log bhi aapki profile dekh sakein
         local safeKey = tempName:gsub("%s+", "_")
-        local payload = '{"name":"'..jsonEscape(tempName)..'","location":"'..jsonEscape(tempLoc)..'","bio":"'..jsonEscape(tempBio)..'"}'
-        executeHttp("PUT", base_url_profiles .. safeKey .. ".json", payload, function() end)
         
-        service.speak("Aapki profile complete ho chuki hai")
-        showProfileInfo()
+        local payloadObj = JSONObject()
+        payloadObj.put("name", tempName)
+        payloadObj.put("location", tempLoc)
+        payloadObj.put("bio", tempBio)
+        
+        executeHttp("PUT", base_url_profiles .. safeKey .. ".json", payloadObj.toString(), function() end)
+        service.speak("Profile complete ho chuki hai") 
+        ui.profileSetupView.setVisibility(View.GONE) 
+        ui.loginView.setVisibility(View.VISIBLE)
     end
 end
 
-ui.btnProfileCancel.onClick = function()
-    ui.profileSetupView.setVisibility(View.GONE)
-    ui.loginView.setVisibility(View.VISIBLE)
-    service.speak("Profile setup cancel ho gaya")
+ui.btnProfileCancel.onClick = function() 
+    ui.profileSetupView.setVisibility(View.GONE) 
+    ui.loginView.setVisibility(View.VISIBLE) 
+    service.speak("Profile setup cancel") 
 end
 
-ui.btnEditProfile.onClick = function()
-    startProfileSetup()
+ui.btnEditProfile.onClick = function() ui.btnOpenProfile.onClick() end
+
+ui.btnBackFromProfileView.onClick = function() 
+    ui.profileShowView.setVisibility(View.GONE) 
+    ui.loginView.setVisibility(View.VISIBLE) 
+    service.speak("Back to main menu") 
 end
 
-ui.btnBackFromProfileView.onClick = function()
-    ui.profileShowView.setVisibility(View.GONE)
-    ui.loginView.setVisibility(View.VISIBLE)
-    service.speak("Back to main menu")
-end
-
-
--- ================= MAIN MENU BUTTONS =================
 ui.btnJoin.onClick = function()
     local n, l, b = getProfile()
-    if n == "" then 
-        service.speak("Pehle profile complete karein") 
-        return 
-    end
-    currentUsername = n
-    ui.loginView.setVisibility(View.GONE)
-    ui.chatView.setVisibility(View.VISIBLE)
-    isChatActive = true
+    if n == "" then service.speak("Pehle profile complete karein") return end
+    currentUsername = n 
+    ui.loginView.setVisibility(View.GONE) 
+    ui.chatView.setVisibility(View.VISIBLE) 
+    isChatActive = true 
     isFirstLoad = true 
     startAutoRefresh()
 end
 
-ui.btnAbout.onClick = function()
-    ui.loginView.setVisibility(View.GONE)
-    ui.aboutView.setVisibility(View.VISIBLE)
-    service.speak("About and Support menu khul gaya")
+ui.btnAbout.onClick = function() 
+    ui.loginView.setVisibility(View.GONE) 
+    ui.aboutView.setVisibility(View.VISIBLE) 
+    service.speak("About menu") 
 end
 
-ui.btnCloseApp1.onClick = function() alert.dismiss() end
-
--- ================= ABOUT & SUPPORT =================
-ui.btnBackAbout.onClick = function()
-    ui.aboutView.setVisibility(View.GONE)
-    ui.loginView.setVisibility(View.VISIBLE)
+ui.btnCloseApp1.onClick = function() 
+    stopAnyPlayingAudio() 
+    alert.dismiss() 
 end
 
-ui.btnCopyWa.onClick = function()
-    local cm = service.getSystemService(Context.CLIPBOARD_SERVICE)
-    cm.setPrimaryClip(ClipData.newPlainText("WhatsApp", myWhatsAppDisplay))
-    service.speak("WhatsApp number copy ho gaya")
+ui.btnBackAbout.onClick = function() 
+    ui.aboutView.setVisibility(View.GONE) 
+    ui.loginView.setVisibility(View.VISIBLE) 
+end
+
+ui.btnCopyWa.onClick = function() 
+    service.getSystemService(Context.CLIPBOARD_SERVICE).setPrimaryClip(ClipData.newPlainText("WhatsApp", myWhatsAppDisplay)) 
+    service.speak("Number copy ho gaya") 
 end
 
 ui.btnContactWa.onClick = function()
-    local intent = Intent(Intent.ACTION_VIEW)
-    intent.setData(Uri.parse("https://wa.me/" .. myWhatsAppNumber))
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    local intent = Intent(Intent.ACTION_VIEW) 
+    intent.setData(Uri.parse("https://wa.me/" .. myWhatsAppNumber)) 
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) 
     service.startActivity(intent)
-    service.speak("WhatsApp open ho raha hai")
 end
 
--- ================= CHAT SCREEN (BOTTOM BAR) =================
 ui.btnSend.onClick = function()
     local textData = ui.inputMessage.getText().toString()
     if textData == "" then return end
     
-    local msgPayload = '{"sender":"'..jsonEscape(currentUsername)..'","text":"'..jsonEscape(textData)..'","replyTo":"'..jsonEscape(replyingTo)..'","time":"'..os.date("%I:%M %p")..'"}'
+    local msgObj = JSONObject()
+    msgObj.put("sender", currentUsername)
+    msgObj.put("text", textData)
+    msgObj.put("audioBase64", "")
+    msgObj.put("replyTo", replyingTo)
+    msgObj.put("time", os.date("%I:%M %p"))
+    local msgPayload = msgObj.toString()
     
     executeHttp("POST", db_url_chat, msgPayload, function(code, res)
-        if code == "200" then
-            ui.inputMessage.setText("")
-            if replyingTo ~= "" then replyingTo = "" ui.replyText.setVisibility(View.GONE) end
-            loadMessages()
+        if code == "200" then 
+            ui.inputMessage.setText("") 
+            if replyingTo ~= "" then 
+                replyingTo = "" 
+                ui.replyText.setVisibility(View.GONE) 
+            end 
+            loadMessages() 
         end
     end)
 end
 
-ui.btnMore.onClick = function()
-    ui.chatView.setVisibility(View.GONE)
-    ui.moreMenuView.setVisibility(View.VISIBLE)
-    service.speak("More options khul gaye")
+ui.btnMore.onClick = function() 
+    ui.chatView.setVisibility(View.GONE) 
+    ui.moreMenuView.setVisibility(View.VISIBLE) 
+    service.speak("More options") 
 end
 
-ui.btnBack.onClick = function()
-    isChatActive = false
-    ui.chatView.setVisibility(View.GONE)
-    ui.loginView.setVisibility(View.VISIBLE)
-    service.speak("Back to main menu")
+ui.btnBack.onClick = function() 
+    isChatActive = false 
+    stopAnyPlayingAudio() 
+    ui.chatView.setVisibility(View.GONE) 
+    ui.loginView.setVisibility(View.VISIBLE) 
+    service.speak("Back") 
 end
 
--- ================= MORE MENU BUTTONS =================
-ui.btnBackFromMore.onClick = function()
-    ui.moreMenuView.setVisibility(View.GONE)
-    ui.chatView.setVisibility(View.VISIBLE)
-    service.speak("Back to chat room")
-end
-
-ui.btnMute.onClick = function()
-    ttsMuted = not ttsMuted
-    if ttsMuted then
-        ui.btnMute.setText("Unmute TTS")
-        service.speak("TTS mute ho gaya")
+-- ================= HQ AUDIO RECORDING (HD Quality) =================
+ui.btnMic.onClick = function()
+    if not isRecording then
+        local ok, err = pcall(function()
+            if mediaRecorder then mediaRecorder.release() end
+            mediaRecorder = luajava.newInstance("android.media.MediaRecorder")
+            mediaRecorder.setAudioSource(1) 
+            mediaRecorder.setOutputFormat(2) 
+            mediaRecorder.setAudioEncoder(3) -- AAC FORMAT (High Quality)
+            mediaRecorder.setAudioEncodingBitRate(128000) 
+            mediaRecorder.setAudioSamplingRate(44100) 
+            mediaRecorder.setOutputFile(audio_record_file)
+            mediaRecorder.prepare()
+            mediaRecorder.start()
+            isRecording = true
+            ui.btnMic.setText("Stop")
+            service.speak("Recording started")
+        end)
+        if not ok then service.speak("Recording error. Mic permission check karein.") end
     else
-        ui.btnMute.setText("Mute TTS")
-        service.speak("TTS unmute ho gaya")
+        pcall(function()
+            mediaRecorder.stop() 
+            mediaRecorder.release() 
+            mediaRecorder = nil 
+            isRecording = false
+            ui.btnMic.setText("Mic") 
+            ui.normalChatBar.setVisibility(View.GONE) 
+            ui.audioPreviewBar.setVisibility(View.VISIBLE)
+            service.speak("Recording stopped. Play, Send ya Cancel karein.")
+        end)
     end
+end
+
+ui.btnPlayPreview.onClick = function()
+    stopAnyPlayingAudio()
+    pcall(function()
+        chatPlayer = luajava.newInstance("android.media.MediaPlayer") 
+        chatPlayer.setDataSource(audio_record_file) 
+        chatPlayer.prepare() 
+        chatPlayer.start() 
+        service.speak("Playing preview")
+    end)
+end
+
+ui.btnCancelAudio.onClick = function()
+    stopAnyPlayingAudio() 
+    File(audio_record_file).delete() 
+    ui.audioPreviewBar.setVisibility(View.GONE) 
+    ui.normalChatBar.setVisibility(View.VISIBLE) 
+    service.speak("Audio cancel kar di gayi")
+end
+
+ui.btnSendAudio.onClick = function()
+    stopAnyPlayingAudio() 
+    service.speak("Sending Voice Message...") 
+    ui.btnSendAudio.setText("Sending...") 
+    ui.btnSendAudio.setEnabled(false) 
+    ui.btnCancelAudio.setEnabled(false) 
+    ui.btnPlayPreview.setEnabled(false)
+    
+    local b64Audio = encodeFileToBase64(audio_record_file)
+    
+    if b64Audio ~= "" then
+        local msgObj = JSONObject()
+        msgObj.put("sender", currentUsername)
+        msgObj.put("text", "[Voice Message]")
+        msgObj.put("audioBase64", b64Audio)
+        msgObj.put("replyTo", replyingTo)
+        msgObj.put("time", os.date("%I:%M %p"))
+        local msgPayload = msgObj.toString()
+        
+        executeHttp("POST", db_url_chat, msgPayload, function(c, r)
+            ui.btnSendAudio.setText("Send") 
+            ui.btnSendAudio.setEnabled(true) 
+            ui.btnCancelAudio.setEnabled(true) 
+            ui.btnPlayPreview.setEnabled(true)
+            if c == "200" then 
+                service.speak("Voice message send ho gaya!") 
+                ui.audioPreviewBar.setVisibility(View.GONE) 
+                ui.normalChatBar.setVisibility(View.VISIBLE) 
+                File(audio_record_file).delete() 
+                if replyingTo ~= "" then 
+                    replyingTo = "" 
+                    ui.replyText.setVisibility(View.GONE) 
+                end 
+                loadMessages() 
+            else 
+                service.speak("Net slow hai, send nahi hua.") 
+            end
+        end)
+    else
+        ui.btnSendAudio.setText("Send") 
+        ui.btnSendAudio.setEnabled(true) 
+        ui.btnCancelAudio.setEnabled(true) 
+        ui.btnPlayPreview.setEnabled(true)
+        service.speak("Audio file read karne mein masla aaya.")
+    end
+end
+
+ui.btnBackFromMore.onClick = function() 
+    ui.moreMenuView.setVisibility(View.GONE) 
+    ui.chatView.setVisibility(View.VISIBLE) 
+    service.speak("Back to chat room") 
+end
+
+ui.btnMute.onClick = function() 
+    ttsMuted = not ttsMuted 
+    if ttsMuted then 
+        ui.btnMute.setText("Unmute TTS") 
+        service.speak("TTS mute") 
+    else 
+        ui.btnMute.setText("Mute TTS") 
+        service.speak("TTS unmute") 
+    end 
 end
 
 ui.btnClear.onClick = function()
-    if #itemKeys > 0 then
-        lastClearedKey = itemKeys[#itemKeys]
-        saveClearedKey(lastClearedKey)
-    end
+    if #itemKeys > 0 then 
+        lastClearedKey = itemKeys[#itemKeys] 
+        saveClearedKey(lastClearedKey) 
+    end 
     itemKeys = {}
     itemValues = {}
-    ui.chatList.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, String(itemValues)))
-    service.speak("Chat screen permanently saaf ho gayi hai")
-    
-    ui.moreMenuView.setVisibility(View.GONE)
+    ui.chatList.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, String(itemValues))) 
+    service.speak("Chat screen saaf ho gayi") 
+    ui.moreMenuView.setVisibility(View.GONE) 
     ui.chatView.setVisibility(View.VISIBLE)
 end
 
--- ================= ONLINE USERS (Strictly 30 Seconds Logic) =================
 ui.btnOnline.onClick = function()
-    ui.moreMenuView.setVisibility(View.GONE)
-    ui.onlineView.setVisibility(View.VISIBLE)
-    service.speak("Online users ki list khul gayi")
-    ui.tvOnlineHeader.setText("Total Online Users: Loading...")
+    ui.moreMenuView.setVisibility(View.GONE) 
+    ui.onlineView.setVisibility(View.VISIBLE) 
+    service.speak("Online users ki list") 
+    ui.tvOnlineHeader.setText("Loading...")
     
     executeHttp("GET", db_url_online, nil, function(code, res)
         if code == "200" and res ~= "null" and res ~= "" then
-            local ok, err = pcall(function()
-                local j = JSONObject(res)
-                local users = {}
-                currentOnlineUsersList = {} -- Global tracked list
-                local it = j.keys()
+            pcall(function()
+                local j = JSONObject(res) 
+                local users = {} 
+                currentOnlineUsersList = {} 
+                local it = j.keys() 
                 local current_time = os.time()
-                
                 while it.hasNext() do 
-                    local rawKey = it.next()
-                    local userObj = j.getJSONObject(rawKey)
+                    local rawKey = it.next() 
+                    local userObj = j.getJSONObject(rawKey) 
                     local lastActive = userObj.has("lastActive") and userObj.getInt("lastActive") or 0
-                    
-                    -- Check: 30 seconds buffer
-                    if current_time - lastActive <= 30 then
-                        local realName = rawKey:gsub("_", " ")
-                        table.insert(users, realName)
-                        table.insert(currentOnlineUsersList, rawKey) -- Store safeKey for fetching profile later
+                    if current_time - lastActive <= 30 then 
+                        table.insert(users, (rawKey:gsub("_", " "))) 
+                        table.insert(currentOnlineUsersList, rawKey) 
                     end
                 end
-                
-                ui.tvOnlineHeader.setText("Total Online Users: " .. #users)
+                ui.tvOnlineHeader.setText("Total Online Users: " .. #users) 
                 ui.onlineList.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, String(users)))
             end)
-        else
-            ui.tvOnlineHeader.setText("Total Online Users: 0")
-            ui.onlineList.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, String({})))
+        else 
+            ui.tvOnlineHeader.setText("Total Online Users: 0") 
+            ui.onlineList.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, String({}))) 
         end
     end)
 end
 
-ui.btnBackOnline.onClick = function()
-    ui.onlineView.setVisibility(View.GONE)
+ui.btnBackOnline.onClick = function() 
+    ui.onlineView.setVisibility(View.GONE) 
     ui.chatView.setVisibility(View.VISIBLE) 
-    service.speak("Back to chat room")
 end
 
--- ================= VIEW OTHER USER'S PROFILE =================
 ui.onlineList.onItemClick = function(parent, viewList, position, id)
-    local safeKey = currentOnlineUsersList[position + 1]
-    if not safeKey then return true end
-    
+    local safeKey = currentOnlineUsersList[position + 1] 
+    if not safeKey then return true end 
     service.speak("Profile load ho rahi hai")
     
     executeHttp("GET", base_url_profiles .. safeKey .. ".json", nil, function(code, res)
         if code == "200" and res ~= "null" and res ~= "" then
-            local pcallOk, err = pcall(function()
-                local j = JSONObject(res)
-                local n = j.getString("name")
-                local l = j.getString("location")
-                local b = j.getString("bio")
-                
-                ui.onlineView.setVisibility(View.GONE)
+            pcall(function()
+                local j = JSONObject(res) 
+                ui.onlineView.setVisibility(View.GONE) 
                 ui.otherProfileView.setVisibility(View.VISIBLE)
-                
-                ui.tvOtherName.setText("Name: " .. n)
-                ui.tvOtherLoc.setText("Location: " .. l)
-                ui.tvOtherBio.setText("About: " .. b)
-                service.speak("Profile open ho gayi")
+                ui.tvOtherName.setText("Name: " .. j.getString("name")) 
+                ui.tvOtherLoc.setText("Location: " .. j.getString("location")) 
+                ui.tvOtherBio.setText("About: " .. j.getString("bio")) 
+                service.speak("Profile open")
             end)
-        else
-            service.speak("Is user ne abhi apni profile online sync nahi ki")
+        else 
+            service.speak("Is user ne abhi apni profile online sync nahi ki") 
         end
     end)
     return true
 end
 
-ui.btnBackFromOtherProfile.onClick = function()
-    ui.otherProfileView.setVisibility(View.GONE)
-    ui.onlineView.setVisibility(View.VISIBLE)
-    service.speak("Back to online users")
+ui.btnBackFromOtherProfile.onClick = function() 
+    ui.otherProfileView.setVisibility(View.GONE) 
+    ui.onlineView.setVisibility(View.VISIBLE) 
 end
 
--- ================= REPLY/COPY/DELETE =================
 ui.chatList.onItemClick = function(parent, viewList, position, id)
-    local selectedKey = itemKeys[position + 1]
-    local rawMsg = rawMessages[selectedKey]
+    local selectedKey = itemKeys[position + 1] 
+    local rawMsg = rawMessages[selectedKey] 
     if not rawMsg then return true end
     
-    local d = AlertDialog.Builder(service)
-    d.setTitle("Message Options")
+    local d = AlertDialog.Builder(service) 
+    d.setTitle("Options")
     
-    local opts = {"Reply", "Copy"}
-    if rawMsg.sender == currentUsername or currentUsername == adminName then
-        table.insert(opts, "Delete (Unsend)")
+    local opts = {}
+    if rawMsg.audioBase64 ~= "" then 
+        table.insert(opts, "Play Audio") 
+        table.insert(opts, "Stop Audio") 
+    end
+    table.insert(opts, "Reply") 
+    
+    if rawMsg.audioBase64 == "" then 
+        table.insert(opts, "Copy") 
+    end
+    
+    if rawMsg.sender == currentUsername or currentUsername == adminName then 
+        table.insert(opts, "Delete (Unsend)") 
     end
     
     d.setItems(String(opts), {onClick=function(d_inter, which)
         local choice = opts[which + 1]
-        if choice == "Copy" then
-            local cm = service.getSystemService(Context.CLIPBOARD_SERVICE)
-            cm.setPrimaryClip(ClipData.newPlainText("chat", rawMsg.text))
-            service.speak("Message copy ho gaya")
-        elseif choice == "Reply" then
-            replyingTo = rawMsg.sender
-            ui.replyText.setText("Replying to: " .. replyingTo .. " (Tap to cancel)")
-            ui.replyText.setVisibility(View.VISIBLE)
-            service.speak("Reply on. Message likhein.")
-        elseif choice == "Delete (Unsend)" then
-            service.speak("Deleting...")
-            executeHttp("DELETE", base_url_chat .. selectedKey .. ".json", nil, function(c, r)
-                if c == "200" then service.speak("Message delete ho gaya") loadMessages() end
+        
+        if choice == "Play Audio" then
+            stopAnyPlayingAudio() 
+            pcall(function() 
+                service.speak("Audio load ho rahi hai...")
+                local bytes = Base64.decode(rawMsg.audioBase64, Base64.NO_WRAP)
+                local fos = FileOutputStream(audio_play_file)
+                fos.write(bytes)
+                fos.flush()
+                fos.close()
+                
+                chatPlayer = luajava.newInstance("android.media.MediaPlayer") 
+                chatPlayer.setDataSource(audio_play_file) 
+                chatPlayer.prepareAsync()
+                local mpListener = luajava.createProxy("android.media.MediaPlayer$OnPreparedListener", { 
+                    onPrepared = function(mp) 
+                        mp.start() 
+                        service.speak("Voice message chal raha hai") 
+                    end 
+                })
+                chatPlayer.setOnPreparedListener(mpListener) 
             end)
+            
+        elseif choice == "Stop Audio" then 
+            stopAnyPlayingAudio() 
+            service.speak("Audio stop ho gayi")
+            
+        elseif choice == "Copy" then 
+            service.getSystemService(Context.CLIPBOARD_SERVICE).setPrimaryClip(ClipData.newPlainText("chat", rawMsg.text)) 
+            service.speak("Message copy ho gaya")
+            
+        elseif choice == "Reply" then 
+            replyingTo = rawMsg.sender 
+            ui.replyText.setText("Replying to: " .. replyingTo .. " (Tap to cancel)") 
+            ui.replyText.setVisibility(View.VISIBLE) 
+            service.speak("Reply on.")
+            
+        elseif choice == "Delete (Unsend)" then 
+            service.speak("Deleting...") 
+            executeHttp("DELETE", base_url_chat .. selectedKey .. ".json", nil, function(c, r) 
+                if c == "200" then 
+                    service.speak("Message delete ho gaya") 
+                    loadMessages() 
+                end 
+            end) 
         end
     end})
     
-    local alertOpt = d.create()
-    alertOpt.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+    local alertOpt = d.create() 
+    alertOpt.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) 
     alertOpt.show()
     return true
 end
 
-ui.replyText.onClick = function()
-    replyingTo = ""
-    ui.replyText.setVisibility(View.GONE)
-    service.speak("Reply cancel ho gaya")
+ui.replyText.onClick = function() 
+    replyingTo = "" 
+    ui.replyText.setVisibility(View.GONE) 
+    service.speak("Reply cancel ho gaya") 
 end
